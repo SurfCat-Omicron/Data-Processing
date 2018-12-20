@@ -1,13 +1,12 @@
-import sys
-import copy
-#import matplotlib
+# pylint: disable=invalid-name,too-many-arguments
+"""FIXME"""
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
-from scipy.integrate import simps
-from scipy.stats import linregress
+#from scipy.integrate import simps
+#from scipy.stats import linregress
 
-class Experiment(object):
+class Experiment():
     """Load an ISS experiment exported as text or VAMAS file.
 
 Author: Jakob Ejler Sorensen
@@ -22,7 +21,7 @@ Date: 2017 June 23
         self.settings['mass'] = mass
         self.settings['theta'] = theta
         self.settings['E0'] = E0
-        
+
         # Initialize variables
         self.energy = dict()
         self.cps = dict()
@@ -37,11 +36,11 @@ Date: 2017 June 23
         self.peak_heights_bg = None
         self.background = None
         self.background_settings = {
-                'type': None,
-                'ranges': None,
-                'on': False,
-                }
-        
+            'type': None,
+            'ranges': None,
+            'on': False,
+            }
+
         # Read data from textfile:
         if filename.endswith('.txt'):
             # Open filename with ISS data
@@ -49,30 +48,30 @@ Date: 2017 June 23
             lines = f.readlines()
             f.close()
             self.format = 'Text file'
-	    
-            start_points = [i for i in range(len(lines)) if lines[i] == 'Energy\tCounts\r\n']
+
+            start_points = [i for i, line in enumerate(lines) if line == 'Energy\tCounts\r\n']
             self.scans = len(start_points)
             if self.scans == 0:
                 raise ImportError('File apparently empty!')
-            
+
             if lines[0].lower().startswith('note'):
                 self.note = lines[0].split('=')[1].lstrip(' ')
             # Copy data points
             counter = 0
             for start in start_points:
                 line = lines[start-4].split('\t')
-                for tab in range(len(line)):
-                    if line[tab].lower() == 'dwell':
-                       self.dwell[counter] = float(lines[start-3].split('\t')[tab])
+                for i, word in enumerate(line):
+                    if word.lower() == 'dwell':
+                        self.dwell[counter] = float(lines[start-3].split('\t')[i])
                 if not start == start_points[-1]:
                     interval = range(start+1, start_points[counter+1]-4)
                 else:
-                    interval =  range(start+1, len(lines))
+                    interval = range(start+1, len(lines))
                 self.energy[counter] = np.zeros(len(interval))
                 self.cps[counter] = np.zeros(len(interval))
                 counter_inner = 0
                 for index in interval:
-                    line = lines[index].rstrip('\r\n').split('\t')
+                    line = lines[index].rstrip().split('\t')
                     self.energy[counter][counter_inner] = float(line[0])
                     self.cps[counter][counter_inner] = float(line[1])
                     counter_inner += 1
@@ -84,39 +83,44 @@ Date: 2017 June 23
             f = open(filename, 'r')
             lines = f.readlines()
             f.close()
-	    # Old format:
+            # Old format:
             if lines[6].lower().startswith('experiment type'):
                 self.format = 'Old VAMAS'
                 print('Loading file: ' + filename)
-                blocks_4 = [i for i in range(len(lines)) if (lines[i] == '-1\r\n') and (lines[i+1].lower() == 'kinetic energy\r\n')]
-                blocks_2_ISS = [i for i in range(len(lines)) if (lines[i] == 'ISS\r\n') and (lines[i+1] == '\r\n')]
-                print(lines[9].rstrip('\r\n'))
+                blocks_4 = [i for i, line in enumerate(lines) if (line.strip() == '-1') \
+and (lines[i+1].lower().strip() == 'kinetic energy')]
+                blocks_2_ISS = [i for i, line in enumerate(lines) if (line.strip() == 'ISS') \
+and (lines[i+1].strip() == '')]
+                print(lines[9].rstrip())
                 self.scans = len(blocks_4)
-                if len(blocks_4) == int(lines[9].rstrip('\r\n')) and len(blocks_4) == len(blocks_2_ISS):
+                if len(blocks_4) == int(lines[9].rstrip()) \
+and len(blocks_4) == len(blocks_2_ISS):
                     self.scans = len(blocks_4)
                 else:
-                    raise ImportError('Error: Identified {} "Block 4", {} "Block 2", but "Block 1" says: {}'.format(len(blocks_4), len(blocks_2_ISS), int(lines[9].rstrip('\r\n'))))
-                
+                    msg = 'Error: Identified {} "Block 4", {} "Block 2", but "Block 1" says: {}'
+                    msg = msg.format(len(blocks_4), len(blocks_2_ISS), int(lines[9].rstrip()))
+                    raise ImportError(msg)
+
                 # Copy data points
                 self.note = dict()
-                for counter in range(len(blocks_4)):
-                    i = blocks_4[counter]
+                for counter, block in enumerate(blocks_4):
                     if not len(lines[blocks_2_ISS[counter] - 1]) == 5:
-                        self.note[counter] = lines[blocks_2_ISS[counter] - 1].rstrip('\r\n')
+                        self.note[counter] = lines[blocks_2_ISS[counter] - 1].rstrip()
                     else:
                         self.note[counter] = ''
-                    self.mode[counter] = lines[i-11].rstrip('\r\n')
-                    self.mode_value[counter] = float( lines[i-10].rstrip('\r\n') )
-                    self.dwell[counter] = float( lines[i+9].rstrip('\r\n') )
-                    data_points = int( lines[i+16] )
+                    self.mode[counter] = lines[block-11].rstrip()
+                    self.mode_value[counter] = float(lines[block-10].rstrip())
+                    self.dwell[counter] = float(lines[block+9].rstrip())
+                    data_points = int(lines[block+16])
                     self.cps[counter] = np.zeros(data_points)
-                    E_step = float( lines[i+4].rstrip('\r\n') )
-                    E_start = float( lines[i+3].rstrip('\r\n') )
+                    E_step = float(lines[block+4].rstrip())
+                    E_start = float(lines[block+3].rstrip())
                     self.energy[counter] = np.arange(data_points)*E_step + E_start
                     for counter_inner in range(data_points):
-                        self.cps[counter][counter_inner] = float( lines[i+19+counter_inner] )/self.dwell[counter]
+                        self.cps[counter][counter_inner] = float(lines[block+19+counter_inner]) \
+/self.dwell[counter]
                 self.note[counter] = ''
-                print(self.energy.viewkeys())
+                print(self.energy.keys())
                 print('Comments: {}'.format(self.note))
                 print('Dwell time: {}'.format(self.dwell))
                 print('Modes: {}'.format(self.mode))
@@ -144,23 +148,24 @@ Date: 2017 June 23
                     lines = f.readlines()
                     f.close()
                     print('Loading file: ' + new_filename)
-                    blocks_4 = [i for i in range(len(lines)) if (lines[i].rstrip() == '-1') and (lines[i+1].lower().rstrip() == 'kinetic energy')]
-                    #print(lines[9].rstrip('\r\n'))
+                    blocks_4 = [i for i, line in enumerate(lines) if (line.rstrip() == '-1') \
+and (lines[i+1].lower().rstrip() == 'kinetic energy')]
+                    #print(lines[9].rstrip())
                     if len(blocks_4) > 1:
-                        print('*** Interesting! More than 1 scan has been detected in above single file!')
+                        print('*** Interesting! More than 1 scan has been detected in above file!')
                     # Copy data points
                     i = blocks_4[0]
-                    self.mode[counter] = lines[i-11].rstrip('\r\n')
-                    self.mode_value[counter] = float( lines[i-10].rstrip('\r\n') )
-                    self.dwell[counter] = float( lines[i+9].rstrip('\r\n') )
-                    data_points = int( lines[i+16] )
+                    self.mode[counter] = lines[i-11].rstrip()
+                    self.mode_value[counter] = float(lines[i-10].rstrip())
+                    self.dwell[counter] = float(lines[i+9].rstrip())
+                    data_points = int(lines[i+16])
                     self.cps[counter] = np.zeros(data_points)
-                    E_step = float( lines[i+4].rstrip('\r\n') )
-                    E_start = float( lines[i+3].rstrip('\r\n') )
+                    E_step = float(lines[i+4].rstrip())
+                    E_start = float(lines[i+3].rstrip())
                     self.energy[counter] = np.arange(data_points)*E_step + E_start
                     for counter_inner in range(data_points):
-                        self.cps[counter][counter_inner] = float( lines[i+19+counter_inner] )/self.dwell[counter]
-
+                        self.cps[counter][counter_inner] = float(lines[i+19+counter_inner]) \
+/self.dwell[counter]
 
 
     def ConvertEnergy(self, mass):
@@ -168,10 +173,8 @@ Date: 2017 June 23
 corresponding the settings stored in the experiment.
         """
         angle = self.settings['theta'] * np.pi/180
-        return self.settings['E0'] * ( (self.settings['mass']*np.cos(angle) + np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.settings['mass']) )**2
-
-
-
+        return self.settings['E0'] * ((self.settings['mass']*np.cos(angle) + \
+np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.settings['mass']))**2
 
 
     def PlotAllScans(self, exclude=[None], color=None):
@@ -187,29 +190,25 @@ corresponding the settings stored in the experiment.
         plt.ylabel('Counts per second')
 
 
-
-
-
     def Normalize(self, interval, exclude=[None], unit='Mass'):
         """Normalize to highest value in interval=[value1, value2]"""
-        if type(interval) == int:
+        if isinstance(interval, int):
             self.normalization_criteria = interval
-        elif type(interval) == str:
+        elif isinstance(interval, str):
             if interval == 'Au':
-    	        self.normalization_criteria = 196.
-        if not type(interval) == list:
+                self.normalization_criteria = 196.
+        if not isinstance(interval, list):
             interval = [0, 0]
             interval[0] = self.ConvertEnergy(self.normalization_criteria) - 10
             interval[1] = self.ConvertEnergy(self.normalization_criteria) + 10
-            selection = [i for i in range(self.scans) if (not i in exclude) and (not interval[0] > max(self.energy[i])) and (not interval[1] < min(self.energy[i]))]
+            selection = [i for i in range(self.scans) if (not i in exclude) and \
+(not interval[0] > max(self.energy[i])) and (not interval[1] < min(self.energy[i]))]
         for __counter in selection:
             range_1 = np.where(self.energy[__counter] < interval[1])[0]
             range_2 = np.where(self.energy[__counter] > interval[0])[0]
             energy_range = np.intersect1d(range_1, range_2)
-            value = max( self.cps[__counter][energy_range] )
+            value = max(self.cps[__counter][energy_range])
             self.cps[__counter] = self.cps[__counter]/value
-
-
 
 
     def AddMassLines(self, masses, offset=0, color='k', labels=True):
@@ -217,23 +216,28 @@ corresponding the settings stored in the experiment.
         energies = self.ConvertEnergy(np.array(masses))
         ax = plt.gca()
         [x1, x2, y1, y2] = ax.axis()
-        for i in range(len(energies)):
-            ax.axvline(x=energies[i]-offset, ymin=0, ymax=1, linestyle='dotted', color=color)
+        for energy, mass in zip(energies, masses):
+            ax.axvline(x=energy-offset, ymin=0, ymax=1, linestyle='dotted', color=color)
             if labels:
-                ax.text(float(energies[i])/x2, 0.95, 'm-{}'.format(masses[i]), transform=ax.transAxes)
+                ax.text(float(energy)/x2, 0.95, 'm-{}'.format(mass), transform=ax.transAxes)
+
 
     def AddRegions(self):
-        """Add regions indicating the whereabouts of 3d, 4d, 5d metals and the lanthanides and actinides."""
-        ax=plt.gca()
+        """Add regions indicating the whereabouts of 3d, 4d, 5d metals and the
+lanthanides and actinides."""
+        ax = plt.gca()
         d3 = [45, 65]
         d4 = [89, 112]
         d5 = [178, 201]
         lant = [139, 175]
         act = [227, 260]
         for i in [d3, d4, d5]:
-            ax.axvspan(xmin=self.ConvertEnergy(i[0]), xmax=self.ConvertEnergy(i[1]), color='k', alpha=0.2)
+            ax.axvspan(xmin=self.ConvertEnergy(i[0]), xmax=self.ConvertEnergy(i[1]),
+                       color='k', alpha=0.2)
         for i in [lant, act]:
-            ax.axvspan(xmin=self.ConvertEnergy(i[0]), xmax=self.ConvertEnergy(i[1]), color='y', alpha=0.2)
+            ax.axvspan(xmin=self.ConvertEnergy(i[0]), xmax=self.ConvertEnergy(i[1]),
+                       color='y', alpha=0.2)
+
 
 # Convenience functions
 def iss_to_time_axis(iss_data=[], ax=None):
@@ -249,7 +253,7 @@ def iss_to_time_axis(iss_data=[], ax=None):
     if ax is None:
         fig = plt.figure()
         ax = fig.add_subplot(111)
-    
+
     # Plot iss
     separator = 0
     print('Time-plot of ISS made:\n-----')
@@ -276,7 +280,7 @@ def get_range(X, limit):
         return None
 
 def get_peaks(iss_data=[], peaks=None):
-
+    """FIXME"""
     AVG = 3.5
     for iss in iss_data:
         iss.peak_positions = peaks
@@ -288,7 +292,7 @@ def get_peaks(iss_data=[], peaks=None):
             if iss.background_settings['on']:
                 iss.peaks_bg[key] = dict()
             for element, pos in peaks.items():
-                indice = get_range(iss.energy[key], [pos-AVG,pos+AVG])
+                indice = get_range(iss.energy[key], [pos-AVG, pos+AVG])
                 if indice is None:
                     #print('Peaks', iss.filename, key, (element, pos), 'None')
                     average = -500
@@ -301,7 +305,8 @@ def get_peaks(iss_data=[], peaks=None):
                     if indice is None:
                         iss.peaks_bg[key][element] = np.nan
                     else:
-                        iss.peaks_bg[key][element] = iss.peaks_raw[key][element] - iss.background[key][int(np.average(indice))]
+                        iss.peaks_bg[key][element] = iss.peaks_raw[key][element] - \
+iss.background[key][int(np.average(indice))]
 
 
 def subtract_backgrounds(iss_data=[], ranges=[], btype='linear', avg=3):
@@ -347,10 +352,12 @@ TODO: add possibility of only selecting specific sets (iss.energy[i])"""
     peaks = dict()
     for element in iss_data[0].peak_positions.keys():
         if bg:
-            peaks[element] = [iss.peaks_bg[i][element] for iss in iss_data for i in iss.peaks_bg.keys()]
+            peaks[element] = [iss.peaks_bg[i][element] for iss in iss_data \
+for i in iss.peaks_bg.keys()]
             peaks[element] = np.array(peaks[element])
         else:
-            peaks[element] = [iss.peaks_raw[i][element] for iss in iss_data for i in iss.peaks_raw.keys()]
+            peaks[element] = [iss.peaks_raw[i][element] for iss in iss_data \
+for i in iss.peaks_raw.keys()]
             peaks[element] = np.array(peaks[element])
     total = np.zeros(len(peaks[element]))
     for element in peaks.keys():
@@ -374,30 +381,12 @@ Return: None. Peaks are saved as attributes of ISS object under 'peak_fit' as a 
         param = [sigma1, sigma2, amp1, amp2]
         ret, _null = curve_fit(double_gauss, x, y, p0=param)
         return ret
-    
+
     for iss in iss_data:
         iss.peak_fit = dict()
         for i in range(iss.scans):
             signal = iss.cps[i] - iss.background[i]
             energy = iss.energy[i][:]
-            iss.peak_fit[i] = fit_gauss(energy, signal, peaks[0], peaks[1], sigma[0], sigma[1], amp[0], amp[1])
+            iss.peak_fit[i] = fit_gauss(energy, signal, peaks[0], peaks[1], sigma[0], sigma[1], \
+amp[0], amp[1])
             print(iss.peak_fit[i])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
