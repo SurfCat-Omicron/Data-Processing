@@ -14,7 +14,7 @@ Version: 3.0
 Date: 2017 June 23
     """
 
-    def __init__(self, filename, mass=4, theta=146.7, E0=1000):
+    def __init__(self, filename, path='', mass=4, theta=146.7, E0=1000):
         """Initialize the class"""
         # Constants
         self.settings = dict()
@@ -28,6 +28,7 @@ Date: 2017 June 23
         self.dwell = dict()
         self.mode = dict()
         self.mode_value = dict()
+        self.path = path
         self.filename = filename
 
         # Convenience function variables
@@ -44,7 +45,7 @@ Date: 2017 June 23
         # Read data from textfile:
         if filename.endswith('.txt'):
             # Open filename with ISS data
-            f = open(filename, 'r')
+            f = open(self.path+filename, 'r')
             lines = f.readlines()
             f.close()
             self.format = 'Text file'
@@ -80,7 +81,7 @@ Date: 2017 June 23
         # Read data from old VAMAS block file
         elif filename.endswith('.vms'):
             # Open filename with ISS data
-            f = open(filename, 'r')
+            f = open(self.path + filename, 'r')
             lines = f.readlines()
             f.close()
             # Old format:
@@ -133,7 +134,7 @@ and len(blocks_4) == len(blocks_2_ISS):
                 counter = 0
                 while True:
                     try:
-                        f = open(filen + '--' + str(counter+1) + ENDING)
+                        f = open(self.path+filen + '--' + str(counter+1) + ENDING)
                         counter += 1
                     except:
                         #print('{} files detected of series:'.format(counter))
@@ -144,7 +145,7 @@ and len(blocks_4) == len(blocks_2_ISS):
                 self.scans = COUNTER
                 for counter in range(COUNTER):
                     new_filename = filen + '--' + str(counter+1) + ENDING
-                    f = open(new_filename, 'r')
+                    f = open(self.path + new_filename, 'r')
                     lines = f.readlines()
                     f.close()
                     print('Loading file: ' + new_filename)
