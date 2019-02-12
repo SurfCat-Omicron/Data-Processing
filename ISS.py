@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
-#from scipy.integrate import simps
+from scipy.integrate import simps
 #from scipy.stats import linregress
 
 class Experiment():
@@ -191,25 +191,33 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
         plt.ylabel('Counts per second')
 
 
-    def Normalize(self, interval, exclude=[None], unit='Mass'):
+    def Normalize(self, interval='Total', exclude=[None], unit='Mass'):
         """Normalize to highest value in interval=[value1, value2]"""
         if isinstance(interval, int):
             self.normalization_criteria = interval
         elif isinstance(interval, str):
-            if interval == 'Au':
+            if interval == 'Total':
+                self.normalization_criteria = 'all'
+            elif interval == 'Au':
                 self.normalization_criteria = 196.
         if not isinstance(interval, list):
-            interval = [0, 0]
-            interval[0] = self.ConvertEnergy(self.normalization_criteria) - 10
-            interval[1] = self.ConvertEnergy(self.normalization_criteria) + 10
-            selection = [i for i in range(self.scans) if (not i in exclude) and \
-(not interval[0] > max(self.energy[i])) and (not interval[1] < min(self.energy[i]))]
-        for __counter in selection:
-            range_1 = np.where(self.energy[__counter] < interval[1])[0]
-            range_2 = np.where(self.energy[__counter] > interval[0])[0]
-            energy_range = np.intersect1d(range_1, range_2)
-            value = max(self.cps[__counter][energy_range])
-            self.cps[__counter] = self.cps[__counter]/value
+            if self.normalization_criteria == 'all':
+                selection = [i for i in range(self.scans) if (not i in exclude)]
+                for __counter in selection:
+                    total = simps(self.cps[__counter], self.energy[__counter])
+                    self.cps[__counter] /= total
+            else:
+                interval = [0, 0]
+                interval[0] = self.ConvertEnergy(self.normalization_criteria) - 10
+                interval[1] = self.ConvertEnergy(self.normalization_criteria) + 10
+                selection = [i for i in range(self.scans) if (not i in exclude) and \
+                             (not interval[0] > max(self.energy[i])) and (not interval[1] < min(self.energy[i]))]
+                for __counter in selection:
+                    range_1 = np.where(self.energy[__counter] < interval[1])[0]
+                    range_2 = np.where(self.energy[__counter] > interval[0])[0]
+                    energy_range = np.intersect1d(range_1, range_2)
+                    value = max(self.cps[__counter][energy_range])
+                    self.cps[__counter] = self.cps[__counter]/value
 
 
     def AddMassLines(self, masses, offset=0, color='k', labels=True):
