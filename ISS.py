@@ -14,7 +14,7 @@ Version: 3.0
 Date: 2017 June 23
     """
 
-    def __init__(self, filename, path='', mass=4, theta=146.7, E0=1000):
+    def __init__(self, filename, mass=4, theta=146.7, E0=1000):
         """Initialize the class"""
         # Constants
         self.settings = dict()
@@ -28,7 +28,6 @@ Date: 2017 June 23
         self.dwell = dict()
         self.mode = dict()
         self.mode_value = dict()
-        self.path = path
         self.filename = filename
 
         # Convenience function variables
@@ -45,7 +44,7 @@ Date: 2017 June 23
         # Read data from textfile:
         if filename.endswith('.txt'):
             # Open filename with ISS data
-            f = open(self.path+filename, 'r')
+            f = open(filename, 'r')
             lines = f.readlines()
             f.close()
             self.format = 'Text file'
@@ -81,7 +80,7 @@ Date: 2017 June 23
         # Read data from old VAMAS block file
         elif filename.endswith('.vms'):
             # Open filename with ISS data
-            f = open(self.path + filename, 'r')
+            f = open(filename, 'r')
             lines = f.readlines()
             f.close()
             # Old format:
@@ -134,7 +133,7 @@ and len(blocks_4) == len(blocks_2_ISS):
                 counter = 0
                 while True:
                     try:
-                        f = open(self.path+filen + '--' + str(counter+1) + ENDING)
+                        f = open(filen + '--' + str(counter+1) + ENDING)
                         counter += 1
                     except:
                         #print('{} files detected of series:'.format(counter))
@@ -145,7 +144,7 @@ and len(blocks_4) == len(blocks_2_ISS):
                 self.scans = COUNTER
                 for counter in range(COUNTER):
                     new_filename = filen + '--' + str(counter+1) + ENDING
-                    f = open(self.path + new_filename, 'r')
+                    f = open(new_filename, 'r')
                     lines = f.readlines()
                     f.close()
                     print('Loading file: ' + new_filename)
@@ -317,6 +316,57 @@ def get_peaks(iss_data=[], peaks=None):
                         iss.peaks_bg[key][element] = iss.peaks_raw[key][element] - \
 iss.background[key][int(np.average(indice))]
 
+
+class LoadSet():
+    """Load a set of ISS data """
+    def __init__(self, input_files=[]):
+        """input_files (list of dicts/dict): 'path' to filenames"""
+        if isinstance(input_files, dict):
+            self.input_files = [input_files]
+        elif isinstance(input_files, list):
+            #if not isinstance(input_files[0], dict):
+            #    raise InputError('input_files must be a list of dictionaries!')
+            self.input_files = input_files
+
+    def add_data(self, input_files):
+        """Add data to load."""
+        if isinstance(input_files, dict):
+            self.input_files.append(input_files)
+        elif isinstance(input_files, list):
+            if not isinstance(input_files[0], dict):
+                raise InputError('input_files must be a list of dictionaries!')
+            for item in input_files:
+                self.input_files.append(item)
+
+    def load(self, normalize=None, exclude=[], unit='Mass'):
+        """Compile and return dictionary of data"""
+        return_dict = {}
+
+        # Load data
+        for input_file in self.input_files:
+            path = input_file['path']
+            if len(path) > 0:
+                if path[-1] != '/':
+                    path += '/'
+            for key, filename in input_file.items():
+                if key == 'path':
+                    continue
+                return_dict[key] = Experiment(path + filename)
+
+        # Normalize data if chosen
+        if not normalize is None:
+            for key in return_dict:
+                return_dict[key].Normalize(normalize, exclude, unit)
+
+        # Return data
+        return return_dict
+
+def plot(data, index, ax=None, args=[], kwargs={}):
+    """Plot index from Experiment 'data'"""
+    if ax is None:
+        ax = plt.gca()
+    x, y = data.energy[index], data.cps[index]
+    ax.plot(x, y, *args, **kwargs)
 
 def subtract_backgrounds(iss_data=[], ranges=[], btype='linear', avg=3):
     """Subtract a linear background from defined 'ranges'.
