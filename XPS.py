@@ -23,7 +23,7 @@ Date: 2017 July 13
         self.repeats = dict()
         self.mode = dict()
         self.mode_value = dict()
-        self.line_energy = 1253.6
+        self.line_energy = 0
         self.filekeys = {}
         self.first_comment = {}
         
@@ -94,15 +94,22 @@ Date: 2017 July 13
                         lines = f.readlines()
                         f.close()
                         print('Loading file: ' + new_filename)
+                        print('New format')
                         # ID block 4 by their "-1" line
-                        blocks_4 = [i for i in range(len(lines)) if (lines[i] == '-1\r\n') and (lines[i+1].lower() == 'kinetic energy\r\n')]
+                        blocks_4 = [i for i in range(len(lines)) if (lines[i] == '-1\n') and (lines[i+1].lower() == 'kinetic energy\n')]
+                        #blocks_4 = [i for i in range(len(lines)) if ('-1' in lines[i])]
                         print(lines[9].rstrip('\r\n'))
+                        print(repr(lines[6]))
+                        print(repr(lines[56]))
                         self.first_comment[(counter,subcounter)] = lines[9].rstrip('\r\n')
                         if len(blocks_4) > 1: # If trigged, i in a few lines must be redefined.
                             print('*** Interesting! More than 1 scan has been detected in above single file!')
 
                         # Copy data points
+                        print(blocks_4)
                         i = blocks_4[0]
+                        self.line_energy = float(lines[i-17]) # Will this index change if missing a transition comment?
+                        print(self.line_energy)
                         self.mode[(counter,subcounter)] = lines[i-11].rstrip('\r\n')
                         self.mode_value[(counter,subcounter)] = float( lines[i-10].rstrip('\r\n') )
                         self.dwell[(counter,subcounter)] = float( lines[i+9].rstrip('\r\n') )
@@ -115,6 +122,10 @@ Date: 2017 July 13
                         self.BE[(counter,subcounter)] = self.line_energy - self.KE[(counter,subcounter)]
                         for counter_inner in range(data_points):
                             self.cps[(counter,subcounter)][counter_inner] = float( lines[i+19+counter_inner] )/self.dwell[(counter,subcounter)]/self.repeats[(counter,subcounter)]
+
+        # After load of data
+        if self.line_energy == 0:
+            print('NB: Anode material not detected! "self.BE" will contain the kinetic energy.')
 
 def Separate_plots(data, spacer=50):
     """Take a set of data scans and return them separated along the y-axis """
