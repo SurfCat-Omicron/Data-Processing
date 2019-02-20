@@ -10,8 +10,8 @@ class Experiment():
     """Load an ISS experiment exported as text or VAMAS file.
 
 Author: Jakob Ejler Sorensen
-Version: 3.0
-Date: 2017 June 23
+Version: 4.0
+Date: 2019 Feb 14
     """
 
     def __init__(self, filename, mass=4, theta=146.7, E0=1000):
@@ -201,7 +201,7 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
                 self.normalization_criteria = 196.
         if not isinstance(interval, list):
             if self.normalization_criteria == 'all':
-                selection = [i for i in range(self.scans) if (not i in exclude)]
+                selection = [i for i in range(self.scans) if not i in exclude]
                 for __counter in selection:
                     total = simps(self.cps[__counter], self.energy[__counter])
                     self.cps[__counter] /= total
@@ -328,21 +328,24 @@ class LoadSet():
             #    raise InputError('input_files must be a list of dictionaries!')
             self.input_files = input_files
 
+        # Data variables
+        self.data = {}
+
     def add_data(self, input_files):
         """Add data to load."""
         if isinstance(input_files, dict):
             self.input_files.append(input_files)
         elif isinstance(input_files, list):
             if not isinstance(input_files[0], dict):
-                raise InputError('input_files must be a list of dictionaries!')
+                raise ValueError('input_files must be a list of dictionaries!')
             for item in input_files:
                 self.input_files.append(item)
 
     def load(self, normalize=None, exclude=[], unit='Mass'):
         """Compile and return dictionary of data"""
-        return_dict = {}
 
         # Load data
+        loaded_files = [x.filename for x in self.data.values()]
         for input_file in self.input_files:
             path = input_file['path']
             if len(path) > 0:
@@ -351,15 +354,19 @@ class LoadSet():
             for key, filename in input_file.items():
                 if key == 'path':
                     continue
-                return_dict[key] = Experiment(path + filename)
+                if path+filename in loaded_files:
+                    continue
+                else:
+                    print('Input file: {}'.format(path+filename))
+                self.data[key] = Experiment(path + filename)
 
         # Normalize data if chosen
         if not normalize is None:
-            for key in return_dict:
-                return_dict[key].Normalize(normalize, exclude, unit)
+            for key in self.data:
+                self.data[key].Normalize(normalize, exclude, unit)
 
         # Return data
-        return return_dict
+        return self.data
 
 def plot(data, index, ax=None, args=[], kwargs={}):
     """Plot index from Experiment 'data'"""
