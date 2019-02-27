@@ -1,5 +1,6 @@
-#import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+import common_toolbox as ct
 
 class Experiment():
     """Load an XPS experiment exported as text or VAMAS file.
@@ -14,9 +15,9 @@ Date: 2019 February 20
         # Constants
 
         # Initialize variables
-        self.KE = dict()
-        self.BE = dict()
-        self.cps = dict()
+        self.KE = XpsDict()
+        self.BE = XpsDict()
+        self.cps = XpsDict()
         self.dwell = dict()
         self.repeats = dict()
         self.mode = dict()
@@ -42,6 +43,7 @@ Date: 2019 February 20
             f_handle.close()
             # Old format:
             if lines[6].lower().startswith('experiment type'):
+                print('Old VAMAS format - FIX ME!!')
                 self.format = 'Old VAMAS'
                 # Find identifiers
                 blocks_4 = [i for i in range(len(lines)) if (lines[i].strip() == '-1') and (lines[i+1].lower().strip() == 'kinetic energy')]
@@ -51,18 +53,18 @@ Date: 2019 February 20
                 self.scans = len(blocks_4)
                 for counter in range(self.scans):
                     i = blocks_4[counter]
-                    self.mode[counter] = lines[i-11]
-                    self.mode_value[counter] = float(lines[i-10])
-                    self.dwell[counter] = float(lines[i+9])
-                    self.repeats[counter] = float(lines[i+10])
+                    self.mode[counter, 0] = lines[i-11]
+                    self.mode_value[counter, 0] = float(lines[i-10])
+                    self.dwell[counter, 0] = float(lines[i+9])
+                    self.repeats[counter, 0] = float(lines[i+10])
                     data_points = int(lines[i+16])
-                    self.cps[counter] = np.zeros(data_points)
+                    self.cps[counter, 0] = np.zeros(data_points)
                     e_step = float(lines[i+4])
                     e_start = float(lines[i+3])
-                    self.KE[counter] = np.arange(data_points)*e_step + e_start
-                    self.BE[counter] = self.line_energy - self.KE[counter]
+                    self.KE[counter, 0] = np.arange(data_points)*e_step + e_start
+                    self.BE[counter, 0] = self.line_energy - self.KE[counter, 0]
                     for counter_inner in range(data_points):
-                        self.cps[counter][counter_inner] = float(lines[i+19+counter_inner])/self.dwell[counter]/self.repeats[counter]
+                        self.cps[counter, 0][counter_inner] = float(lines[i+19+counter_inner])/self.dwell[counter, 0]/self.repeats[counter, 0]
             # New format
             elif lines[6].lower().startswith('created with'):
                 self.format = 'New VAMAS'
@@ -109,17 +111,84 @@ Date: 2019 February 20
                         self.dwell[(counter, subcounter)] = float(lines[i+9])
                         self.repeats[(counter, subcounter)] = float(lines[i+10])
                         data_points = int(lines[i+16])
-                        self.cps[(counter, subcounter)] = np.zeros(data_points)
+                        ydata = np.zeros(data_points)
                         e_step = float(lines[i+4])
                         e_start = float(lines[i+3])
                         self.KE[(counter, subcounter)] = np.arange(data_points)*e_step + e_start
                         self.BE[(counter, subcounter)] = self.line_energy - self.KE[(counter, subcounter)]
                         for counter_inner in range(data_points):
-                            self.cps[(counter, subcounter)][counter_inner] = float(lines[i+19+counter_inner])/self.dwell[(counter, subcounter)]/self.repeats[(counter, subcounter)]
+                            ydata[counter_inner] = float(lines[i+19+counter_inner])/self.dwell[(counter, subcounter)]/self.repeats[(counter, subcounter)]
+                        self.cps[(counter, subcounter)] = ydata
 
         # After load of data
         if self.line_energy == 0:
             print('NB: Anode material not detected! "self.BE" will contain the kinetic energy.')
+
+class XpsDict(dict):
+    """Custom dict to simplify indexation"""
+    def __init__(self, *args, **kwargs):
+        dict.__init__(self, *args, **kwargs)
+
+    def __getitem__(self, index):
+        """Assure that the averaged scans are returned if an integer index
+is supplied regardless of how the data was exported"""
+        if isinstance(index, int):
+            # The averaged data set is wanted
+            data = None
+            for key, value in dict.items(self):
+                if key[0] == index:
+                    if data is None:
+                        data = value
+                        counter = 1
+                    else:
+                        data += value
+                        counter += 1
+            if data is None:
+                raise IndexError('Index ({}, x) doesn\'t exist.'.format(index))
+            return data/float(counter)
+        elif isinstance(index, tuple):
+            # A single scan is specified
+            return dict.__getitem__(self, index)
+
+
+def plot(data, plots, plot_args, plot_kwargs, xaxis='binding energy', rc=False):
+    """Take dicts of options to produce standardized plots"""
+
+    # Inputs
+    if rc:
+        try:
+            import rcparam
+        except ImportError:
+            print('No module "rcparam" found. Using default plot settings.')
+    if xaxis.lower().startswith('b'):
+        xaxis = 'BE'
+        xlabel = 'Binding energy (eV)'
+        flip = True
+    elif xaxis.lower().startswith('k'):
+        xaxis = 'KE'
+        xlabel = 'Kinetic energy (eV)'
+        flip = False
+    else:
+        msg = 'xaxis="{}" not understood. Allowed (binding energy/kinetic energy)'
+        raise ValueError(msg.format(xaxis))
+
+    # Plots
+    for plot in plots:
+        plt.figure()
+        plt.title(plot['title'])
+        plt.xlabel(xlabel)
+        plt.ylabel('CPS')
+        for key, index in plot['data']:
+            if xaxis == 'BE':
+                x = data[key].BE[index]
+            elif xaxis == 'KE':
+                x = data[key].KE[index]
+            y = data[key].cps[index]
+            plt.plot(x, y, plot_args[key], **plot_kwargs[key])
+        if flip:
+            ax = plt.gca()
+            ct.flip_x(ax)
+
 
 def separate_plots(data, spacer=50):
     """Take a set of data scans and return them separated along the y-axis """
