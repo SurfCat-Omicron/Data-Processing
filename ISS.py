@@ -6,6 +6,8 @@ from scipy.optimize import curve_fit
 from scipy.integrate import simps
 #from scipy.stats import linregress
 
+import common_toolbox as ct
+
 class Experiment():
     """Load an ISS experiment exported as text or VAMAS file.
 
@@ -190,13 +192,15 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
         plt.ylabel('Counts per second')
 
 
-    def Normalize(self, interval='Total', exclude=[None], unit='Mass'):
+    def Normalize(self, interval='Max', exclude=[None], unit='Mass'):
         """Normalize to highest value in interval=[value1, value2]"""
         if isinstance(interval, int):
             self.normalization_criteria = interval
         elif isinstance(interval, str):
             if interval == 'Total':
                 self.normalization_criteria = 'all'
+            elif interval.lower().startswith('max'):
+                self.normalization_criteria = 'max'
             elif interval == 'Au':
                 self.normalization_criteria = 196.
         if not isinstance(interval, list):
@@ -205,6 +209,12 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
                 for __counter in selection:
                     total = simps(self.cps[__counter], self.energy[__counter])
                     self.cps[__counter] /= total
+            elif self.normalization_criteria == 'max':
+                selection = [i for i in range(self.scans) if not i in exclude]
+                for __counter in selection:
+                    ydata = ct.smooth(self.cps[__counter], width=2)
+                    norm_value = max(ydata)
+                    self.cps[__counter] /= norm_value
             else:
                 interval = [0, 0]
                 interval[0] = self.ConvertEnergy(self.normalization_criteria) - 10
