@@ -1,5 +1,4 @@
 # pylint: disable=
-import matplotlib.pyplot as plt
 import numpy as np
 
 def smooth(data, width=1):
@@ -68,11 +67,15 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         DEBUG -- plot a figure to help determine `SENSITIVITY_X` (True/False)
     """
 
-    def __init__(self, parameter_string, data):
+    def __init__(self, parameter_string, data, plot=True):
         """Assign parameters as attributes."""
         string = parameter_string.strip(';').split(';')
-        self.plotting, self.debugging = False, False
+        self.debugging = False
         self.model, self.target, self.time = None, None, list()
+        if plot:
+            import matplotlib.pyplot as plt
+            self.plt = plt
+            self.plot = plot
         for item in string:
             param, value = item.split('=')
             if param == 'SENSITIVITY_FILTER':
@@ -81,8 +84,6 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
                 self.sensitivity_limit = float(value)
             elif param == 'FIRST_LIMIT':
                 self.first_limit = float(value)*1e-12
-            elif param == 'PLOT':
-                self.plotting = parse_bool_string(value)
             elif param == 'PARTICLE_DIAMETER':
                 radius_particle = float(value)/2.*1e-9
                 self.area_particle = np.pi * ((radius_particle)**2)
@@ -140,15 +141,12 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
 
     def integrate(self):
         """Integrate the current and return the number of particles."""
-        #plt.plot(self.data[:, 0], self.data[:, 1], 'r-') ###
 
         # Filter data
         self.filter_data()
-        #plt.plot(self.data[:, 0], self.data[:, 1], 'b') ###
 
         # Separate data in regions
         leak_current = self.separate_data()
-        #plt.show() ###
 
         # Integrate deposition current
         e = 1.602e-19 # pylint: disable=invalid-name
@@ -171,6 +169,7 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         if target_number < integral:
             msg = 'Target coverage ({0} %) already exceeded: {1} %.'
             print(msg.format(target_coverage, present_coverage))
+            print('Number of clusters: {0} pmol.'.format(to_pmol(integral)))
         else:
             msg = 'Total charge deposited: {} pmol.\n'.format(to_pmol(integral))
             msg += 'Present coverage: {} %\n'.format(present_coverage)
@@ -214,6 +213,9 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         previous = -1
         for i, gradient in enumerate(self.data[:-1, 1] - self.data[1:, 1]):
             # Detect end of leak measurement
+            #if counter_current + counter_leak > 0:
+            #    pass
+            #elif limit < gradient and not depo:
             if limit < gradient and not depo:
                 leak[counter_leak] = np.arange(previous+1, i+1)
                 previous = i
@@ -261,7 +263,16 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         leak_current = self.data.copy()
         for key in deposition:
             leak_current[deposition[key], 1] = extrapolated_leak[key]
-        #plt.plot(leak_current[:, 0], leak_current[:, 1], 'g-') ###
+
+        # Plot the different regions
+        if self.plot:
+            for key in leak.keys():
+                self.plt.plot(self.data[:, 0][leak[key]], self.data[:, 1][leak[key]]/1e-12, 'go', markersize=4)
+            for key in deposition.keys():
+                self.plt.plot(self.data[:, 0][deposition[key]], self.data[:, 1][deposition[key]]/1e-12, 'bo', markersize=4)
+            for key in deposition.keys():
+                mask = deposition[key]
+                self.plt.fill_between(self.data[:, 0][mask], leak_current[:, 1][mask]/1e-12, self.data[:, 1][mask]/1e-12, color='b', alpha=0.3)
         return leak_current
 
     def renew_limit(self, index):
@@ -272,14 +283,19 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
 
     def filter_data(self):
         """Apply various filters to raw data."""
+        # Remove any overflow data (1E+38)
+        self.data = self.data[np.where(self.data[:, 1] < 1)]
 
+        # Plot raw data
+        if self.plot:
+            self.plt.plot(self.data[:, 0], self.data[:, 1]/1e-12, 'ro-', markersize=2) ###
+            self.plt.xlabel('Time (s)')
+            self.plt.ylabel('Current (pA)')
+        
         # Select a portion of the data
         if self.time:
             self.data = self.data[np.where(self.data[:, 0] >= self.time[0])]
             self.data = self.data[np.where(self.data[:, 0] <= self.time[1])]
-
-        # Remove any overflow data (1E+38)
-        self.data = self.data[np.where(self.data[:, 1] < 1)]
 
         # Get fluctuation information
         averaged_gradient = get_averaged_gradient(self.data[:, 1], width=2)
@@ -306,39 +322,29 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
 ################################################################
 if __name__ == '__main__':
 
+    #import rcparam
     from cinfdata import Cinfdata
     db = Cinfdata('omicron', use_caching=False) # pylint: disable=invalid-name
+    ID = 15372
     STRING = '\
-TARGET=50;\
+TARGET=5.0;\
 MODEL=NP;\
 SA_DENSITY=1;\
-PARTICLE_DIAMETER=5;\
+PARTICLE_DIAMETER=5.0;\
 APERTURE_DIAMETER=4.5;\
-FIRST_LIMIT=14.0;\
-SENSITIVITY_LIMIT=0.7;SENSITIVITY_FILTER=1.;\
+FIRST_LIMIT=10.8;\
+SENSITIVITY_LIMIT=1.;SENSITIVITY_FILTER=1.;\
 TIME=[]'
     try:
-        SESSION = IntegrateCurrent(STRING, db.get_data(14401))
+        SESSION = IntegrateCurrent(STRING, db.get_data(ID))
         SESSION.integrate()
+        if SESSION.plot:
+            SESSION.plt.show()
     except:
         print('***\nSomething is wrong: Check input parameters or try debugging mode!!\n***')
-        plt.show()
+        SESSION.plt.show()
         raise
     # for 9x9 raster pattern: ap_dia ~ 12.4 mm (120.8 mm2 ~ 11x11 mm)
     # for 5x5 raster pattern: ap_dia ~ 6.7 mm (35.3 mm2)
     #                 [*** Based on simul. 12/12-18 use ap_dia ~ 9.0mm]
     # for localized_Z pattern: ap_dia ~ 4.81 mm (18.2 mm2 ~ 5.2x3.5 mm)
-# DH1:
-#    0.2686 pmol NPs ~ 370 pmol atoms
-# DH2:
-#    0.2696 pmol NPs ~ 371 pmol atoms
-# DH3:
-#    0.2712 pmol NPs ~ 374 pmol atoms
-# ANH 12 [14409] raw:
-#   First half: unrastered. 0.06545 pmol ~ 4.866 %
-#   Second half: rastered.  0.1008 pmol ~ 1.873 %
-#   Total coverage: 6.739 %
-#   Total molage: 0.0907 pmol NPs ~ 500 pmol atoms
-# ANH 13 [14415] : 0.1524 pmol NPs = 840 pmol atoms ~ 2.832 % --> 840/4 = 210 pmol atoms on sample
-# ANH 14 [14422] : 0.2705 pmol NPs = 1491 pmol atoms ~5.028 % --> 1491/4 = 373 pmol atoms on sample
-#                                                   /  20.11 %
