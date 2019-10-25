@@ -114,8 +114,13 @@ Date: 2019 February 20
                         ydata = np.zeros(data_points)
                         e_step = float(lines[i+4])
                         e_start = float(lines[i+3])
+                        # Kinetic energy from file
                         self.KE[(counter, subcounter)] = np.arange(data_points)*e_step + e_start
+                        # Binding energy from kinetic energy
                         self.BE[(counter, subcounter)] = self.line_energy - self.KE[(counter, subcounter)]
+                        # Analyzer work function
+                        Phi = 4.5
+                        self.KE[(counter, subcounter)] -= Phi
                         for counter_inner in range(data_points):
                             ydata[counter_inner] = float(lines[i+19+counter_inner])/self.dwell[(counter, subcounter)]/self.repeats[(counter, subcounter)]
                         self.cps[(counter, subcounter)] = ydata
@@ -151,7 +156,7 @@ is supplied regardless of how the data was exported"""
             return dict.__getitem__(self, index)
 
 
-def plot(data, plots, plot_args, plot_kwargs, xaxis='binding energy', rc=False):
+def plot(data, plots, plot_args, plot_kwargs, xaxis='binding energy', rc=False, y_align=None, grid=False):
     """Take dicts of options to produce standardized plots"""
 
     # Inputs
@@ -184,10 +189,21 @@ def plot(data, plots, plot_args, plot_kwargs, xaxis='binding energy', rc=False):
             elif xaxis == 'KE':
                 x = data[key].KE[index]
             y = data[key].cps[index]
-            plt.plot(x, y, plot_args[key], **plot_kwargs[key])
+            if y_align == 'right':
+                edge = np.average(y[-5:])
+            elif y_align == 'left':
+                edge = np.average(y[:5])
+            else:
+                edge = 0
+            y = y - edge
+            plt.plot(x, y, plot_args[key])#, **plot_kwargs[key])
         if flip:
             ax = plt.gca()
             ct.flip_x(ax)
+        if grid:
+            print('drawing grid')
+            #plt.grid(True, which='both', axis='X', color='k', linewidth=2)
+            plt.grid(True, 'major', 'both')
 
 
 def separate_plots(data, spacer=50):
@@ -214,3 +230,50 @@ def separate_plots(data, spacer=50):
                 new_cps[region, i] = data.cps[region, i] + abs(minimum) + spacer
                 continue
     return new_cps
+
+class LoadSet():
+    """Load a set of XPS data """
+
+    def __init__(self, input_files=[]):
+        """input_files (list of dicts/dict): 'path' to filenames"""
+        if isinstance(input_files, dict):
+            self.input_files = [input_files]
+        elif isinstance(input_files, list):
+            #if not isinstance(input_files[0], dict):
+            #    raise InputError('input_files must be a list of dictionaries!')
+            self.input_files = input_files
+
+        # Data variables
+        self.data = {}
+
+    def add_data(self, input_files):
+        """Add data to load."""
+        if isinstance(input_files, dict):
+            self.input_files.append(input_files)
+        elif isinstance(input_files, list):
+            if not isinstance(input_files[0], dict):
+                raise ValueError('input_files must be a list of dictionaries!')
+            for item in input_files:
+                self.input_files.append(item)
+
+    def load(self):
+        """Compile and return dictionary of data"""
+
+        # Load data
+        loaded_files = [x.filename for x in self.data.values()]
+        for input_file in self.input_files:
+            path = input_file['path']
+            if len(path) > 0:
+                if path[-1] != '/':
+                    path += '/'
+            for key, filename in input_file.items():
+                if key == 'path':
+                    continue
+                if path+filename in loaded_files:
+                    continue
+                else:
+                    print('Input file: {}'.format(path+filename))
+                self.data[key] = Experiment(path + filename)
+
+        # Return data
+        return self.data
