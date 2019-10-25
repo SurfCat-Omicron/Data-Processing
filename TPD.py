@@ -1,6 +1,8 @@
 from cinfdata import Cinfdata
+import common_toolbox as ct
 import numpy as np
 import matplotlib
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.stats import linregress
@@ -10,6 +12,65 @@ from scipy.integrate import simps
 Author: Jakob Ejler Sørensen
 """
 
+class color():
+    """
+Instance to supply colors for plots. See:
+https://matplotlib.org/3.1.0/gallery/color/named_colors.html
+"""
+    def __init__(self):
+        # Red: reducing
+        # Green: inert
+        # Blue: oxidizing
+        self.mass2color_dict = {
+            '2': 'firebrick',
+            '4': 'olivedrab',
+            '12': 'black',
+            '15': 'dimgray',
+            '16': 'lightskyblue',
+            '17': 'deepskyblue',
+            '18': 'royalblue',
+            '28': 'darkgreen',
+            '29': 'olive',
+            '30': 'darkorange',
+            '32': 'mediumblue',
+            '40': 'limegreen',
+            '44': 'darkorchid', # matplotlib.colors.CSS4_COLORS[
+        }
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            if key.lower().startswith('m'):
+                new_key = key.lower().lstrip('m')
+            else:
+                new_key = key
+        elif isinstance(key, int):
+            new_key = str(key)
+        else:
+            raise TypeError('Mass must be a string or an integer.')
+        if not new_key in self.mass2color_dict.keys():
+            print(key, 'not found in color dict. Using standard sequential colors!')
+            return
+        else:
+            name = self.mass2color_dict[new_key]
+            color = mcolors.CSS4_COLORS[name]
+        return color
+
+def show_color_scheme():
+    plt.figure()
+    x = np.array([0, 1])
+    y = np.array([1, 1])
+    global color
+    counter = 0
+    mass_colors = color()
+    for label, name in mass_colors.mass2color_dict.items():
+        counter += 1
+        if isinstance(label, str):
+            label = label.lower().lstrip('m')
+        plt.plot(x, y*int(label), color=mass_colors[label], linewidth=4, label='-'.join([label, name]))
+    plt.plot(x, y*(counter+1), color=mass_colors['m1'], linewidth=4, label='m1')
+    plt.legend()
+    plt.title('Chosen color scheme for TPD masses')
+    plt.show()
 
 def get_range(X, time):
     A = np.where(X > time[0])[0][0]
@@ -43,7 +104,8 @@ def time2temp(data):
     stds = np.append(stds, time[region].std())
     temps = np.append(temps, value)
     # Create interpolate function
-    interpolate = interp1d(times, temps, kind='linear')#, bounds_error=False, fill_value='extrapolate')
+    #interpolate = interp1d(times, temps, kind='linear')
+    interpolate = interp1d(times, temps, kind='linear', bounds_error=False, fill_value='extrapolate')
     return interpolate
 
 
@@ -63,11 +125,11 @@ def import_data(ID, setup='omicron'):
 #            'Voltage setpoint', 'Voltage monitor',
 #            'Current setpoint', 'Current monitor']
 
-class TPD_data(object):
+class Experiment(object):
     """Imports a TPD data set from Omicron into a TPD class to implement
 different practical functions for data treatment"""
 
-    def __init__(self, timestamp, caching=True):
+    def __init__(self, timestamp, caching=False):
         """Save all data in 'DATA' dict object"""
 
         # Connect to database
@@ -85,7 +147,7 @@ different practical functions for data treatment"""
         print('Loaded data from Experiment: "{}"'.format(self.name))
 
 
-    def isolate_experiments(self, set_label=None):
+    def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
         """
 1) Isolate regions of heating ramps
 2) Organize into returnable data
@@ -102,7 +164,7 @@ different practical functions for data treatment"""
                     set_label = i
                     break
         if set_label is None:
-            print('Label is not found automatically. Specify temperature ramp label.')
+            print('Ramp label is not found automatically. Specify "set_label"!')
             raise ValueError()
         if len(self.data[set_label]) == 0:
             raise ValueError('No heat ramps detected')
@@ -129,15 +191,18 @@ different practical functions for data treatment"""
         region = np.arange(marker_start, counter)
         regions.append(region)
         number_of_regions = len(regions)
+        print(number_of_regions)
 
         # 2) Organize into returnable data
-        temp_label = 'Sample temperature'
         if not temp_label in self.labels:
             for i in self.labels:
                 if 'sample' in i.lower() and 'temperature' in i.lower():
                     temp_label = i
                     print('Temperature label deviating from default found: "{}"'.format(temp_label))
                     break
+            else:
+                print('"Sample temperature" not found in loaded dataset. Please specify "temp_label"!')
+                return None
         interpolate = time2temp(self.data[temp_label])
         exp = {}
         for i in range(number_of_regions):
@@ -158,11 +223,16 @@ different practical functions for data treatment"""
                 # skip if empty
                 if self.data[label] == None:
                     continue
-                #print(i, label)
+                print(i, label)
                 exp[i][label][2] = interpolate(exp[i][label][0])
             slope, intercept, rvalue, pvalue, std_err = linregress(exp[i][temp_label][0], exp[i][temp_label][1])
             exp[i]['Slope'] = slope*exp[i][temp_label][0] + intercept
         return exp
+
+    def get_timesnippet(self, label, limit):
+        """Return (time, data) of data set 'label' cropped to fit into time 'limit'"""
+        index = ct.get_range(self.data[label][:, 0], limit[0], limit[1])
+        return self.data[label][:, 0][index], self.data[label][:, 1][index]
 
 def get_total_signal(exp, ID):
     """ Integrate time based QMS signal from 'isolate_experiments()' 
@@ -377,7 +447,7 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
     plt.show()
 
 if __name__ == '__main__':
-    data = TPD_data('2018-10-19 10:10:08', caching=False)
+    data = Experiment('2018-10-18 16:33:35', caching=False)
     exp = data.isolate_experiments()
 
     colors = ['k', 'r', 'g', 'b', 'm', 'y', 'c']
@@ -388,7 +458,7 @@ if __name__ == '__main__':
     for i in exp.keys():
         dat = exp[i]['M30']
         ax.plot(dat[2], dat[1]/1e-12, marker='o', color=colors[i])
-    ax.set_xlabel('Temperature (Celcius)')
+    ax.set_xlabel('Temperature ($^\circ$C)')
     ax.set_ylabel('SEM current (pA)')
     add_scale_Kelvin(ax)
 
