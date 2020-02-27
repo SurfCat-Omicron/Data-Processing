@@ -25,7 +25,7 @@ else:
 filename = sys.argv[index]
 exp = module.Experiment(filename)
 
-for number in exp.cps.viewkeys():
+for number in exp.cps.keys():
     print('Writing region {}'.format(number))
     new_filename = filename.split('--')[0] + '_Region_{}.csv'.format(number)
     f = open(new_filename, 'a')
