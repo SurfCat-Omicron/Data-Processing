@@ -213,6 +213,8 @@ different practical functions for data treatment"""
                 # skip if empty
                 if self.data[label] == None:
                     continue
+                if len(self.data[label]) == 0:
+                    continue
                 exp[i][label] = {}
                 local_range = get_range(self.data[label][:, 0], [time_ref[0]-3, time_ref[-1]+3])
                 for x in [0, 1]:
@@ -222,6 +224,8 @@ different practical functions for data treatment"""
             for label in self.labels:
                 # skip if empty
                 if self.data[label] == None:
+                    continue
+                if len(self.data[label]) == 0:
                     continue
                 print(i, label)
                 exp[i][label][2] = interpolate(exp[i][label][0])
@@ -447,7 +451,7 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
     plt.show()
 
 if __name__ == '__main__':
-    data = Experiment('2018-10-18 16:33:35', caching=False)
+    data = Experiment('2020-02-26 12:49:44', caching=False)
     exp = data.isolate_experiments()
 
     colors = ['k', 'r', 'g', 'b', 'm', 'y', 'c']
