@@ -1,5 +1,9 @@
+#encoding:utf-8
 from cinfdata import Cinfdata
 import common_toolbox as ct
+import time, datetime
+import pickle
+from os import path
 import numpy as np
 import matplotlib
 import matplotlib.colors as mcolors
@@ -11,6 +15,9 @@ from scipy.integrate import simps
 """
 Author: Jakob Ejler Sørensen
 """
+
+CACHING = None
+CACHE_DIR = '/home/jejsor/.tpd_cache'
 
 class color():
     """
@@ -129,22 +136,57 @@ class Experiment(object):
     """Imports a TPD data set from Omicron into a TPD class to implement
 different practical functions for data treatment"""
 
-    def __init__(self, timestamp, caching=False):
+    def __init__(self, timestamp, caching=False, set_label=None, temp_label='Sample temperature', recalculate=False):
         """Save all data in 'DATA' dict object"""
 
-        # Connect to database
-        db = Cinfdata('omicron',
-                    use_caching=caching,
-                    grouping_column='time',
-                    )
-        # Get data in unit seconds
-        group_data = db.get_data_group(timestamp, scaling_factors=(1E-3, None))
-        group_meta = db.get_metadata_group(timestamp)
-        # Get a list of labels and group data
-        self.name = group_meta[list(group_meta.keys())[0]]['Comment']
-        self.labels = [group_meta[key]['mass_label'] for key in group_data.keys()]
-        self.data = {group_meta[key]['mass_label']: group_data[key] for key in group_data.keys()}
-        print('Loaded data from Experiment: "{}"'.format(self.name))
+        # Various attributes
+        self.pickle_format = 'tpd__{}__{}.pickle'
+        self.exps = {}
+        #self.caching = True if CACHING is True or caching is True else False
+        self.caching = caching
+        if CACHING is not None:
+            self.caching = CACHING
+        self.timestamp = {}
+        self.timestamp['date'] = timestamp
+        self.timestamp['unix'] = time.mktime(datetime.datetime.strptime(
+                                             timestamp, "%Y-%m-%d %H:%M:%S").timetuple())
+        # Try to load from file
+        cache_file = []
+        load_from_pickle = False
+        if self.caching and not recalculate:
+            list_of_files = path.os.listdir(CACHE_DIR)
+            for name in list_of_files:
+                if name.startswith('tpd__{}__'.format(timestamp)):
+                    cache_file.append(name)
+            if len(cache_file) == 1:
+                with open(path.join(CACHE_DIR, cache_file[0]), 'rb') as f:
+                    copy = pickle.load(f)
+                    self.name = copy.name
+                    self.labels = copy.labels
+                    self.data = copy.data
+                    self.exps = copy.exps
+                load_from_pickle = True
+                print(' *** Loaded TPD data from pickle: {} ***'.format(self.name))
+            elif len(cache_file) > 1:
+                print('Found multiple pickles matching timestamp:\n{}'.format(cache_file))
+
+        # Get data from database
+        if load_from_pickle is False:
+            # Connect to database
+            db = Cinfdata('omicron',
+                        use_caching=caching,
+                        grouping_column='time',
+                        )
+            # Get data in unit seconds
+            group_data = db.get_data_group(timestamp, scaling_factors=(1E-3, None))
+            group_meta = db.get_metadata_group(timestamp)
+
+            # Get a list of labels and group data
+            self.name = group_meta[list(group_meta.keys())[0]]['Comment'].replace('/', '')
+            self.labels = [group_meta[key]['mass_label'] for key in group_data.keys()]
+            self.data = {group_meta[key]['mass_label']: group_data[key] for key in group_data.keys()}
+            print('Loaded data from Experiment: "{}"'.format(self.name))
+            self.isolate_experiments(set_label=set_label, temp_label=temp_label)
 
 
     def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
@@ -191,9 +233,10 @@ different practical functions for data treatment"""
         region = np.arange(marker_start, counter)
         regions.append(region)
         number_of_regions = len(regions)
-        print(number_of_regions)
+        #print(number_of_regions)
 
         # 2) Organize into returnable data
+        # Get temperature data
         if not temp_label in self.labels:
             for i in self.labels:
                 if 'sample' in i.lower() and 'temperature' in i.lower():
@@ -203,10 +246,26 @@ different practical functions for data treatment"""
             else:
                 print('"Sample temperature" not found in loaded dataset. Please specify "temp_label"!')
                 return None
-        interpolate = time2temp(self.data[temp_label])
-        exp = {}
+        interpolate_temp = time2temp(self.data[temp_label])
+        # Local heating rate
+        number = 0
+        t_window = 10
+
+        # For fast temperature logging, this seems to work very good. Hasn't been tested on
+        # sparse datasets *** OBSOLETE ***
+        while number < 3:
+            t_window += 1
+            number = len(ct.get_range(self.data[temp_label][:, 0], self.data[temp_label][-1, 0]-t_window, self.data[temp_label][-1, 0]))
+        self.slope = self.data[temp_label].copy()
+        self.slope[:number+1, 1] = np.nan
+        for i in range(len(self.slope[:, 0]) -1, number, -1):
+            coeff = np.polyfit(self.data[temp_label][i-number:i+1, 0], self.data[temp_label][i-number:i+1, 1], 1)
+            self.slope[i, 1] = coeff[0]
+        interpolate_slope = time2temp(self.slope)
+
+        # Set up data structure for experiments
         for i in range(number_of_regions):
-            exp[i] = {}
+            self.exps[i] = {}
             region = regions[i]
             time_ref = self.data[set_label][:,0][region]
             for label in self.labels:
@@ -215,12 +274,12 @@ different practical functions for data treatment"""
                     continue
                 if len(self.data[label]) == 0:
                     continue
-                exp[i][label] = {}
+                self.exps[i][label] = {}
                 local_range = get_range(self.data[label][:, 0], [time_ref[0]-3, time_ref[-1]+3])
                 for x in [0, 1]:
-                    exp[i][label][x] = self.data[label][:, x][local_range]
+                    self.exps[i][label][x] = self.data[label][:, x][local_range]
 
-            # 3) Add temperature axis to each data set (except "Temperature")
+            # 3) Add temperature axis to each data set
             for label in self.labels:
                 # skip if empty
                 if self.data[label] == None:
@@ -228,10 +287,36 @@ different practical functions for data treatment"""
                 if len(self.data[label]) == 0:
                     continue
                 print(i, label)
-                exp[i][label][2] = interpolate(exp[i][label][0])
-            slope, intercept, rvalue, pvalue, std_err = linregress(exp[i][temp_label][0], exp[i][temp_label][1])
-            exp[i]['Slope'] = slope*exp[i][temp_label][0] + intercept
-        return exp
+                self.exps[i][label][2] = interpolate_temp(self.exps[i][label][0])
+                # Extract information about local heating rate
+                dat = self.exps[i][label]
+                dat[3] = np.empty(len(dat[0]))
+                dat[3][0] = np.nan
+                dat[3][1:] = ct.smooth(np.diff(dat[2])/np.diff(dat[0]), width=1)
+
+        # Save results in pickle:
+        self.save_pickle()
+
+    def save_pickle(self):
+        """Save class instance to pickle file"""
+        if self.caching:
+            if not path.exists(CACHE_DIR):
+                print('TPD.CACHE_DIR doesn\'t exist. Create it or change to existing path.')
+                raise OSError('Create path for me!')
+            pickle_name = self.pickle_format.format(self.timestamp['date'], self.name)
+            file_string = path.join(CACHE_DIR, pickle_name)
+            with open(file_string, 'wb') as f:
+                pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)
+            print('Data saved as {}'.format(pickle_name))
+
+        else:
+            print('Set TPD.CACHING = True to save instance as pickle. Nothing saved')
+
+    def load_pickle(self):
+        """Reload self from pickle file"""
+        if CACHING is True:
+            # Check if data is loadable
+            path
 
     def get_timesnippet(self, label, limit):
         """Return (time, data) of data set 'label' cropped to fit into time 'limit'"""
@@ -243,8 +328,8 @@ def get_total_signal(exp, ID):
 Resembles a lot"""
 
     # For every experiment, add integrated signal as 'COVERAGE'
-    coverage = np.zeros(len(exp.viewkeys()))
-    for i in exp.viewkeys():
+    coverage = np.zeros(len(exp.keys()))
+    for i in exp.keys():
         ranges = []
         x = exp[i][ID][0]
         y = exp[i][ID][1]
@@ -328,7 +413,7 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
 
     # Check if selection has been given
     if len(selection) < 1:
-        selection = exp.viewkeys()
+        selection = exp.keys()
 
     GUIDE_LINES = (np.arange(10)+1) * 100
     fig, ax = {}, {}    
