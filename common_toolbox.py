@@ -18,6 +18,8 @@ def get_range(x, lim1, lim2):
     index1 = np.where(x <= lim2)[0]
     index2 = np.where(x >= lim1)[0]
     index = np.intersect1d(index1, index2)
+    if len(index) == 0:
+        print('"get_range" didn\'t find any data within the limits!')
     return index
 
 def copy_range(x, lim1, lim2):
