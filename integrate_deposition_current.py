@@ -72,10 +72,6 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         string = parameter_string.strip(';').split(';')
         self.debugging = False
         self.model, self.target, self.time = None, None, list()
-        if plot:
-            import matplotlib.pyplot as plt
-            self.plt = plt
-            self.plot = plot
         for item in string:
             param, value = item.split('=')
             if param == 'SENSITIVITY_FILTER':
@@ -109,8 +105,27 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
                     self.time = [float(val) for val in value.split(',')]
             else:
                 print('par/val pair ({0}/{1}) not recognized'.format(param, value))
+        if self.debugging:
+            plot = True
+        if plot:
+            import matplotlib.pyplot as plt
+            self.plt = plt
+            fig = plt.figure(1)
+            self.ax1 = fig.add_subplot(211)
+            self.ax2 = fig.add_subplot(212)
+            self.plot = plot
+        if self.debugging:
+            fig = plt.figure(2)
+            self.dbg0 = fig.add_subplot(311)
+            self.dbg1 = fig.add_subplot(312)
+            self.dbg2 = fig.add_subplot(313)
+            self.dbg2.set_xlabel('Time (s)')
+            self.dbg0.set_ylabel('Raw current (pA)')
+            self.dbg1.set_ylabel('LIMIT criteria (pA)')
+            self.dbg2.set_ylabel('FILTER criteria')
 
         # Store data
+        self.polarity = None
         self.data = data
         self.dep_rate = None
         self.present_coverage = None
@@ -123,6 +138,7 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         elif self.model == 'SA':
             print('Single atoms model not implemented yet!')
             number = None
+            number = coverage/100*(self.area_aperture*self.sa_density)
         elif self.model == 'NP':
             number = coverage/100.*self.area_aperture/self.area_particle
         return number
@@ -135,6 +151,7 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         elif self.model == 'SA':
             print('Single atoms model not implemented yet!')
             coverage = None
+            coverage = number*100/(self.area_aperture*self.sa_density)
         elif self.model == 'NP':
             coverage = number*100/self.area_aperture*self.area_particle
         return coverage
@@ -154,6 +171,11 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         integral = np.sum(net_current[1:] * np.diff(self.data[:, 0]))/e
         dep_rate = net_current[np.where(net_current > 1e-13)][-100:]
         dep_rate = np.average(dep_rate)/e
+
+        # Plot flux of particles
+        if self.plot:
+            self.ax2.fill_between(self.data[:, 0], 0, net_current/e, color='b', alpha=0.3)
+            self.ax2.plot(self.data[:, 0], net_current/e, 'bo-', markersize=1)
 
         # Estimate time to next coverage step
         present_coverage = self.convert_number_to_coverage(integral)
@@ -181,6 +203,9 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
             time_sec = int(time_left - time_hr*3600 - time_min*60)
             print(msg.format(target_coverage, time_hr, time_min, time_sec))
 
+        # Return data as particles per second
+        return net_current/e
+
     def separate_data(self):
         """Separate data into regions of background and deposition current."""
 
@@ -188,13 +213,14 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         counter = 0
         offset = 1
         limit = self.first_limit*self.sensitivity_limit
+        print(self.polarity, limit)
         try:
             while True:
                 index = offset + counter
-                if self.data[index+1, 1] - self.data[index, 1] > limit:
+                if self.polarity*(self.data[index+1, 1] - self.data[index, 1]) < -limit:
                     first_region = 'deposition'
                     break
-                elif self.data[index+1, 1] - self.data[index, 1] < -limit:
+                elif self.polarity*(self.data[index+1, 1] - self.data[index, 1]) > limit:
                     first_region = 'background'
                     break
                 counter += 1
@@ -202,6 +228,12 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
             print(msg.format(first_region, index, round(self.data[index, 0], 2)))
         except IndexError:
             print(' *** Index exceeded when searching for first region. ***')
+        if self.debugging:
+            t0 = self.data[index, 0]
+            self.dbg1.plot([0, t0], [self.first_limit*1e12]*2, color='r', linestyle='solid')
+            self.dbg1.plot([0, t0], [self.first_limit*1e12*self.sensitivity_limit]*2, color='r', linestyle='dotted')
+            self.dbg1.plot(self.data[1:, 0], abs(np.diff(self.data[:, 1])*1e12), 'bo:')
+            
 
         # Find remaining regions
         deposition, leak = dict(), dict()
@@ -211,17 +243,13 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         else:
             depo = True
         previous = -1
-        for i, gradient in enumerate(self.data[:-1, 1] - self.data[1:, 1]):
-            # Detect end of leak measurement
-            #if counter_current + counter_leak > 0:
-            #    pass
-            #elif limit < gradient and not depo:
-            if limit < gradient and not depo:
+        for i, gradient in enumerate(np.diff(self.data[:, 1])):
+            if limit < self.polarity*gradient and not depo:
                 leak[counter_leak] = np.arange(previous+1, i+1)
                 previous = i
                 counter_leak += 1
                 depo = True
-            elif -limit > gradient and depo:
+            elif -limit > self.polarity*gradient and depo:
                 deposition[counter_current] = np.arange(previous+1, i+1)
                 previous = i
                 counter_current += 1
@@ -267,12 +295,10 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         # Plot the different regions
         if self.plot:
             for key in leak.keys():
-                self.plt.plot(self.data[:, 0][leak[key]], self.data[:, 1][leak[key]]/1e-12, 'go', markersize=4)
+                self.ax1.plot(self.data[:, 0][leak[key]], self.data[:, 1][leak[key]]/1e-12, 'go', markersize=4)
             for key in deposition.keys():
-                self.plt.plot(self.data[:, 0][deposition[key]], self.data[:, 1][deposition[key]]/1e-12, 'bo', markersize=4)
-            for key in deposition.keys():
-                mask = deposition[key]
-                self.plt.fill_between(self.data[:, 0][mask], leak_current[:, 1][mask]/1e-12, self.data[:, 1][mask]/1e-12, color='b', alpha=0.3)
+                self.ax1.plot(self.data[:, 0][deposition[key]], self.data[:, 1][deposition[key]]/1e-12, 'bo', markersize=4)
+            self.ax1.fill_between(self.data[:, 0], leak_current[:, 1]/1e-12, self.data[:, 1]/1e-12, color='b', alpha=0.3)
         return leak_current
 
     def renew_limit(self, index):
@@ -285,12 +311,19 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         """Apply various filters to raw data."""
         # Remove any overflow data (1E+38)
         self.data = self.data[np.where(self.data[:, 1] < 1)]
+        if np.average(self.data[:, 1]) > 0:
+            self.polarity = 1
+        else:
+            self.polarity = -1
 
         # Plot raw data
         if self.plot:
-            self.plt.plot(self.data[:, 0], self.data[:, 1]/1e-12, 'ro-', markersize=2) ###
-            self.plt.xlabel('Time (s)')
-            self.plt.ylabel('Current (pA)')
+            self.ax1.plot(self.data[:, 0], self.data[:, 1]/1e-12, 'ro-', markersize=2)
+            self.ax2.set_xlabel('Time (s)')
+            self.ax1.set_ylabel('Current (pA)')
+            self.ax2.set_ylabel('Flux (particles/s)')
+            if self.debugging:
+                self.dbg0.plot(self.data[:, 0], self.data[:, 1]/1e-12, 'ro-', markersize=2)
         
         # Select a portion of the data
         if self.time:
@@ -300,9 +333,15 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
         # Get fluctuation information
         averaged_gradient = get_averaged_gradient(self.data[:, 1], width=2)
         std = self.get_std(averaged_gradient)
+        if self.debugging:
+            self.dbg2.plot(self.data[:, 0], abs(averaged_gradient), 'bo', markersize=2)
+            self.dbg2.axhline(y=std, color='r', linewidth=2)
+            self.dbg2.axhline(y=std, color='k', linewidth=2, linestyle='dashed')
 
         # Apply noise filter
         self.data = self.data[np.where(abs(averaged_gradient) < std*self.sensitivity_filter)]
+        if self.debugging:
+            self.dbg0.plot(self.data[:, 0], self.data[:, 1]/1e-12, 'bo', markersize=2)
 
     def get_std(self, averaged_gradient):
         """Not a disease, but the standard deviation of the measurement fluctuations."""
@@ -314,6 +353,8 @@ class IntegrateCurrent(object): # pylint: disable=useless-object-inheritance
             counter += 1
             if abs(averaged_gradient[offset+counter]) > std_gradient:
                 print('Gradient computed up to index {}'.format(offset+counter))
+                if self.debugging:
+                    self.dbg2.axvline(x=self.data[offset+counter, 0], color='r')
                 break
         return std_gradient
 
@@ -325,25 +366,46 @@ if __name__ == '__main__':
     #import rcparam
     from cinfdata import Cinfdata
     db = Cinfdata('omicron', use_caching=False) # pylint: disable=invalid-name
-    ID = 15372
+    #ID = 18851
+    #ID = 12299 # NP NiFe
+    ID = 18982 # GG 29
+    #ID = 17601 # SA1
+    #ID = 17585 # SA2
     STRING = '\
 TARGET=5.0;\
 MODEL=NP;\
-SA_DENSITY=1;\
+SA_DENSITY=1.58426e19;\
 PARTICLE_DIAMETER=5.0;\
 APERTURE_DIAMETER=4.5;\
-FIRST_LIMIT=10.8;\
-SENSITIVITY_LIMIT=1.;SENSITIVITY_FILTER=1.;\
-TIME=[]'
+FIRST_LIMIT=10;\
+SENSITIVITY_LIMIT=.7;SENSITIVITY_FILTER=1.;\
+TIME=[];\
+DEBUG=False'
     try:
-        SESSION = IntegrateCurrent(STRING, db.get_data(ID))
+        SESSION = IntegrateCurrent(STRING, db.get_data(ID), plot=True)
         SESSION.integrate()
         if SESSION.plot:
+            limits = SESSION.ax2.axis()
+            if SESSION.debugging:
+                for ax in [SESSION.dbg0, SESSION.dbg1, SESSION.dbg2, SESSION.ax1]:
+                    l1, l2, l3, l4 = ax.axis()
+                    ax.axis([limits[0], limits[1], l3, l4])
             SESSION.plt.show()
     except:
         print('***\nSomething is wrong: Check input parameters or try debugging mode!!\n***')
+        limits = SESSION.ax2.axis()
+        if SESSION.debugging:
+            for ax in [SESSION.dbg0, SESSION.dbg1, SESSION.dbg2, SESSION.ax1]:
+                l1, l2, l3, l4 = ax.axis()
+                ax.axis([limits[0], limits[1], l3, l4])
         SESSION.plt.show()
         raise
+    #limits = SESSION.ax2.axis()
+    #if SESSION.debugging:
+    #    for ax in [SESSION.dbg0, SESSION.dbg1, SESSION.dbg2, SESSION.ax1]:
+    #        ax.axis(limits)
+    #SESSION.plt.show()
+        #self.ax1.axis((l1, l2, l3, l4))
     # for 9x9 raster pattern: ap_dia ~ 12.4 mm (120.8 mm2 ~ 11x11 mm)
     # for 5x5 raster pattern: ap_dia ~ 6.7 mm (35.3 mm2)
     #                 [*** Based on simul. 12/12-18 use ap_dia ~ 9.0mm]
