@@ -37,5 +37,5 @@ def smooth(data, width=1):
         if i < width:
             smoothed_data[i] = sum(data[0:i+width+1])/len(data[0:i+width+1])
             smoothed_data[-1-i] = sum(data[-1-i-width:])/len(data[-1-i-width:])
-    smoothed_data[width:-1-width] = smoothed_data[width:-1-width]/(2*width+1)
+    smoothed_data[width:-width] = smoothed_data[width:-width]/(2*width+1)
     return smoothed_data
