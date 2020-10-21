@@ -2,27 +2,27 @@
 """FIXME"""
 import matplotlib.pyplot as plt
 import numpy as np
+import functools
 from scipy.optimize import curve_fit
 from scipy.integrate import simps
-#from scipy.stats import linregress
-
 import common_toolbox as ct
 
 class Experiment():
     """Load an ISS experiment exported as text or VAMAS file.
 
 Author: Jakob Ejler Sorensen
-Version: 4.0
-Date: 2019 Feb 14
+Version: 5.0
+Date: 2020 Oct 21
     """
 
-    def __init__(self, filename, mass=4, theta=146.7, E0=1000):
+    def __init__(self, filename, mass=4, theta=146.7, E0=1000, default_scan=0):
         """Initialize the class"""
         # Constants
         self.settings = dict()
         self.settings['mass'] = mass
         self.settings['theta'] = theta
         self.settings['E0'] = E0
+        self.default_scan = default_scan
 
         # Initialize variables
         self.energy = dict()
@@ -30,19 +30,22 @@ Date: 2019 Feb 14
         self.dwell = dict()
         self.mode = dict()
         self.mode_value = dict()
+        self.note = dict()
+        filename = str(filename)
         self.filename = filename
 
         # Convenience function variables
         self.peak_positions = None
         self.peak_heights_raw = None
         self.peak_heights_bg = None
-        self.background = None
+        self._background = None
         self.background_settings = {
             'type': None,
             'ranges': None,
             'on': False,
             }
 
+        #----------------------------------------------------------------------
         # Read data from textfile:
         if filename.endswith('.txt'):
             # Open filename with ISS data
@@ -79,6 +82,7 @@ Date: 2019 Feb 14
                     counter_inner += 1
                 self.cps[counter] = self.cps[counter]/self.dwell[counter]
                 counter += 1
+        #----------------------------------------------------------------------
         # Read data from old VAMAS block file
         elif filename.endswith('.vms'):
             # Open filename with ISS data
@@ -87,6 +91,7 @@ Date: 2019 Feb 14
             f.close()
             # Old format:
             if lines[6].lower().startswith('experiment type'):
+                self.setup = 'omicron'
                 self.format = 'Old VAMAS'
                 print('Loading file: ' + filename)
                 blocks_4 = [i for i, line in enumerate(lines) if (line.strip() == '-1') \
@@ -127,8 +132,10 @@ and len(blocks_4) == len(blocks_2_ISS):
                 print('Dwell time: {}'.format(self.dwell))
                 print('Modes: {}'.format(self.mode))
                 print('Mode values: {}'.format(self.mode_value))
-            # New format:
+            #----------------------------------------------------------------------
+            # New format
             if lines[6].lower().startswith('created with'):
+                self.setup = 'omicron'
                 self.format = 'New VAMAS'
                 ENDING = '_1-Detector_Region.vms'
                 filen = filename.rstrip(ENDING)
@@ -157,6 +164,28 @@ and (lines[i+1].lower().rstrip() == 'kinetic energy')]
                         print('*** Interesting! More than 1 scan has been detected in above file!')
                     # Copy data points
                     i = blocks_4[0]
+                    ###
+                    if counter == 0:
+                        _counter = 0
+                        while True:
+                            if lines[_counter].startswith('CREATION COMMENT START'):
+                                comment_start = _counter
+                                break
+                            else:
+                                _counter += 1
+                                if _counter > len(lines):
+                                    break
+                        _counter = 0
+                        while True:
+                            if lines[_counter].startswith('CREATION COMMENT END'):
+                                comment_end = _counter
+                                break
+                            else:
+                                _counter += 1
+                                if _counter > len(lines):
+                                    break
+                    self.note = lines[comment_start+1:comment_end]
+                    ###
                     self.mode[counter] = lines[i-11].rstrip()
                     self.mode_value[counter] = float(lines[i-10].rstrip())
                     self.dwell[counter] = float(lines[i+9].rstrip())
@@ -168,6 +197,131 @@ and (lines[i+1].lower().rstrip() == 'kinetic energy')]
                     for counter_inner in range(data_points):
                         self.cps[counter][counter_inner] = float(lines[i+19+counter_inner]) \
 /self.dwell[counter]
+        #----------------------------------------------------------------------
+        # Import Thetaprobe .avg data
+        elif filename.endswith('.avg'):
+            self.setup = 'thetaprobe'
+            with open(filename, 'r', encoding='latin-1') as f:
+                lines = f.readlines()
+
+            # Check for ISS
+            info = {line.split(':')[0].strip(): line.split('=')[1].strip() for line in lines if line.startswith('DS_')}
+            if info['DS_ANPROPID_LENS_MODE_NAME'] != "'ISS'":
+                print('{} does not appear to be an ISS experiment!'.format(self.filename))
+                print('Expected \'ISS\', but encountered: {}'.format(info['DS_ANPROPID_LENS_MODE_NAME']))
+                raise ImportError('File not an ISS experiment!')
+            if info['DS_EXT_SUPROPID_CREATED'] == info['DS_EXT_SUPROPID_SAVED']:
+                #print('Created and saved dates are identical - checking for empty dataset...')
+                check_empty = True
+            else:
+                check_empty = False
+
+            # Metadata
+            self.note[0] = info['DS_EXT_SUPROPID_SUBJECT']
+            self.date = info['DS_EXT_SUPROPID_CREATED']
+            self.dwell[0] = float(info['DS_ACPROPID_ACQ_TIME'])
+            self.mode[0] = int(info['DS_ANPROPID_MODE'])
+            self.mode_value[0] = float(info['DS_ANPROPID_PASS'])
+            if info['DS_GEPROPID_VALUE_LABEL'] == "'Counts'":
+                normalize = True # normalize to "counts per second"
+            else:
+                normalize = False
+
+            # Data
+            #data_info = {}
+            line_number = [i for i, line in enumerate(lines) if line.startswith('$DATAAXES')]
+            if len(line_number) > 1:
+                print('Reading file: {}'.format(self.filename))
+                raise ImportError('Import of multiple dataaxes not implemented yet!')
+            else:
+                line_number = line_number[0]
+            keys = [key.strip() for key in lines[line_number-1].split('=')[1].split(',')]
+            values = [key.strip() for key in lines[line_number+1].split('=')[1].split(',')]
+            data_info = {key: value for key, value in list(zip(keys, values))}
+
+            start, end = float(data_info['start']), float(data_info['end'])
+
+            #space_info = {}
+            line_number = [i for i, line in enumerate(lines) if line.startswith('$SPACEAXES')]
+            if len(line_number) > 1:
+                print('Reading file: {}'.format(self.filename))
+                raise ImportError('Import of multiple dataaxes not implemented yet!')
+            else:
+                line_number = line_number[0]
+            keys = [key.strip() for key in lines[line_number-1].split('=')[1].split(',')]
+            values = [key.strip() for key in lines[line_number+1].split('=')[1].split(',')]
+            space_info = {key: value for key, value in list(zip(keys, values))}
+
+            num = int(space_info['numPoints'])
+            if space_info['linear'] != 'LINEAR':
+                print('Reading file: {}'.format(self.filename))
+                raise ImportError('Check .avg file if energy axis is linear!')
+
+            # Generate xy-data
+            self.energy[0] = np.linspace(start, end, num)
+            self.cps[0] = self.energy[0]*np.nan
+
+            line_number = [i for i, line in enumerate(lines) if line.startswith('$DATA=')]
+            if len(line_number) > 1:
+                msg = 'Reading file: {}'.format(self.filename)
+                raise ImportError('Import of multiple dataaxes not implemented yet!')
+            else:
+                line_number = line_number[0]
+
+            for j in range(num):
+                if j%4 == 0: # values are grouped in chunks of 4
+                    line_number += 1
+                    line = lines[line_number].split('=')[1].split(',')
+                try:
+                    self.cps[0][j] = float(line[j%4])
+                except ValueError:
+                    pass # #empty# values
+            if check_empty:
+                if not np.any(np.isfinite(self.cps[0])):
+                    raise ImportError('Dataset from {} is empty!'.format(self.filename))
+                else:
+                    print('Dataset appeared to be empty from the saved timestamps, but is not empty.')
+            if normalize:
+                self.cps[0] /= self.dwell[0]
+
+        # Print loaded settings
+        print('Successfully loaded file: {}'.format(filename))
+        string = 'Used settings:\nProbing mass: {} amu\nScatter angle: {}\nPrimary energy: {} eV'
+        #print(string.format(*[self.settings[key] for key in ['mass', 'theta', 'E0']]))
+
+    @property
+    def x(self):
+        return self.energy[self.default_scan]
+
+    @x.setter
+    def x(self, var):
+        if not var in self.energy.keys():
+            print('"{}" not an available key! {}'.format(var, self.energy.keys()))
+        self.default_scan = var
+
+    @property
+    def y(self):
+        return self.cps[self.default_scan]
+
+    @y.setter
+    def y(self, var):
+        if not var in self.energy.keys():
+            print('"{}" not an available key! {}'.format(var, self.energy.keys()))
+        self.default_scan = var
+
+    @property
+    def xy(self):
+        return np.vstack((self.x, self.y)).T
+
+    def get_xy(self, index):
+        return np.vstack((self.energy[index], self.cps[index])).T
+
+    @property
+    def background(self):
+        if self._background is not None:
+            return self._background[self.default_scan]
+        else:
+            return None
 
 
     def ConvertEnergy(self, mass):
@@ -181,7 +335,7 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
 
     def PlotAllScans(self, exclude=[None], color=None):
         """Plot all elements in file in single figure."""
-        selection = [i for i in range(self.scans) if not i in exclude]
+        selection = [i for i in self.energy.keys() if not i in exclude]
         if not color:
             for i in selection:
                 plt.plot(self.energy[i], self.cps[i])
@@ -192,8 +346,9 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
         plt.ylabel('Counts per second')
 
 
-    def Normalize(self, interval='Max', exclude=[None], unit='Mass'):
+    def Normalize(self, interval='Max', exclude=[None], unit='Mass', delta_e=10):
         """Normalize to highest value in interval=[value1, value2]"""
+        self.delta_e = delta_e
         if isinstance(interval, int):
             self.normalization_criteria = interval
         elif isinstance(interval, str):
@@ -217,8 +372,12 @@ np.sqrt(mass**2 - self.settings['mass']**2*np.sin(angle)**2))/(mass + self.setti
                     self.cps[__counter] /= norm_value
             else:
                 interval = [0, 0]
-                interval[0] = self.ConvertEnergy(self.normalization_criteria) - 10
-                interval[1] = self.ConvertEnergy(self.normalization_criteria) + 10
+                if unit.lower() == 'mass':
+                    interval[0] = self.ConvertEnergy(self.normalization_criteria) - self.delta_e
+                    interval[1] = self.ConvertEnergy(self.normalization_criteria) + self.delta_e
+                elif unit.lower() == 'energy':
+                    interval[0] = self.normalization_criteria - self.delta_e
+                    interval[1] = self.normalization_criteria + self.delta_e
                 selection = [i for i in range(self.scans) if (not i in exclude) and \
                              (not interval[0] > max(self.energy[i])) and (not interval[1] < min(self.energy[i]))]
                 for __counter in selection:
@@ -324,7 +483,7 @@ def get_peaks(iss_data=[], peaks=None):
                         iss.peaks_bg[key][element] = np.nan
                     else:
                         iss.peaks_bg[key][element] = iss.peaks_raw[key][element] - \
-iss.background[key][int(np.average(indice))]
+iss._background[key][int(np.average(indice))]
 
 
 class LoadSet():
@@ -385,37 +544,39 @@ def plot(data, index, ax=None, args=[], kwargs={}):
     x, y = data.energy[index], data.cps[index]
     ax.plot(x, y, *args, **kwargs)
 
+def subtract_single_background(xy, ranges=[], avg=3):
+    """Subtract the background from a single spectrum"""
+    x, y = xy[:, 0], xy[:, 1]
+    background = np.copy(y)
+    for limit in ranges:
+        indice = get_range(x, limit)
+        # if first index is chosen
+        # OR
+        # if last ten indice are included
+        if indice[0] == 0 or indice[-1] > len(x) - 10:
+            print('Uhh', indice[0], indice[-1], limit)
+            background[indice] = 0
+        elif len(indice) == 0:
+            print('Did not find data within limit: {}'.format(limit))
+        else:
+            y1 = np.average(y[indice[0]-avg:indice[0]+avg])
+            y2 = np.average(y[indice[-1]-avg:indice[-1]+avg])
+            a_coeff = (y2-y1)/(limit[1]-limit[0])
+            b_coeff = y1 - a_coeff*limit[0]
+            #print(y1, y2, a_coeff, b_coeff)
+            background[indice] = x[indice]*a_coeff + b_coeff
+    return background
+
+
 def subtract_backgrounds(iss_data=[], ranges=[], btype='linear', avg=3):
     """Subtract a linear background from defined 'ranges'.
 Return data above backgrounds."""
 
     AVG = avg + 0.5
     for iss in iss_data:
-        iss.background = dict()
+        iss._background = dict()
         for key in iss.energy.keys():
-            background = np.zeros(len(iss.cps[key]))
-            background[:] = iss.cps[key]
-            for limit in ranges:
-                indice = get_range(iss.energy[key], limit)
-                # if first index is chosen
-                # OR
-                # if last ten indice are included
-                #if indice[0] < limit[0] or indice[-1] > limit[1]:
-                if indice[0] == 0 or indice[-1] > len(iss.energy[key]) - 10:
-                    #print(len(iss.energy[key]))
-                    print('Uhh', indice[0], indice[-1], limit)
-                    background[indice] = 0
-                    #print('BG **', iss.filename, key, indice)
-                elif len(indice) == 0:
-                    print('BG *', iss.filename, key, indice)
-                else:
-                    y1 = np.average(iss.cps[key][indice[0]-AVG:indice[0]+AVG])
-                    y2 = np.average(iss.cps[key][indice[-1]-AVG:indice[-1]+AVG])
-                    a_coeff = (y2-y1)/(limit[1]-limit[0])
-                    b_coeff = y1 - a_coeff*limit[0]
-                    print(y1, y2, a_coeff, b_coeff)
-                    background[indice] = iss.energy[key][indice]*a_coeff + b_coeff
-            iss.background[key] = background
+            iss._background[key] = subtract_single_background(iss.get_xy(key), ranges, avg)
 
         # Tell settings that function is done
         iss.background_settings['type'] = btype
@@ -461,8 +622,178 @@ Return: None. Peaks are saved as attributes of ISS object under 'peak_fit' as a 
     for iss in iss_data:
         iss.peak_fit = dict()
         for i in range(iss.scans):
-            signal = iss.cps[i] - iss.background[i]
+            signal = iss.cps[i] - iss._background[i]
             energy = iss.energy[i][:]
             iss.peak_fit[i] = fit_gauss(energy, signal, peaks[0], peaks[1], sigma[0], sigma[1], \
 amp[0], amp[1])
             print(iss.peak_fit[i])
+
+### NEW ###
+def fit_references(data, references, e_ranges, labels=None):
+    """Fit 'references' to 'data' in the energy window (x) 'e_range'"""
+    # Restrict data to within e_range
+    index = []
+    for e_range in e_ranges:
+        index.append(ct.get_range(data[:, 0], *e_range))
+    index = functools.reduce(np.union1d, index)
+    #return index
+    data = data[index]
+    mod_ref = {label: ref[index] for label, ref in references.items()}
+
+    # Define fitting relationship
+    def func(x, *args):
+        signal = x*0
+        for arg, ref in list(zip(args, mod_ref.values())):
+            signal += arg*ref[:, 1]
+        return signal
+
+    # Calculate best fit
+    ret, _ = curve_fit(func, data[:, 0], data[:, 1], p0=[0.5]*len(references), bounds=(0, np.inf))
+    dict_ = {label: ret[i] for i, label in enumerate(references.keys())}
+    pretty_dict = dict_as_percent(dict_)
+    for label, percent in pretty_dict.items(): print(label, percent)
+    return dict_
+
+def fit_references_v2(iss, references, e_ranges, labels=None):
+    """Fit 'references' to 'data' in the energy window (x) 'e_range'
+
+Subtract background from references to only use peak intensities for fit.
+Subtract beckground in the regions you want to fit.
+"""
+    #plt.show()
+    # Restrict data to within e_range
+    index = []
+    for e_range in e_ranges:
+        index.append(ct.get_range(iss.x, *e_range))
+    index = functools.reduce(np.union1d, index)
+
+    # Subtract background from references
+    modified_references = {}
+    for label, (ref, limit) in references.items():
+
+        
+        modified_references[label] = np.copy(ref)
+        #modified_references[label][:, 1] -= peak[index]
+
+        background = subtract_single_background(ref, ranges=[limit])
+        modified_references[label][:, 1] -= background
+        #modified_references[label] = modified_references[label][index]
+        #plt.plot(ref[:, 0], ref[:, 1] - background, label=label)
+
+    # Subtract background from data
+    subtract_backgrounds(iss_data=[iss], ranges=e_ranges)
+    data = iss.xy[index]
+    data[:, 1] -= iss.background[index]
+    #plt.plot(data[:, 0], data[:, 1], 'ko', label='Data')
+    #plt.plot(iss.x, iss.background, label='Data (raw)')
+
+
+    #plt.legend()
+    #plt.show()
+    #modified_references = {label: ref[index] for label, ref in references.items()}
+
+    # Define fitting relationship
+    def func(x, *args):
+        signal = x*0
+        for arg, ref in list(zip(args, modified_references.values())):
+            signal += arg*ref[:, 1][index]
+        return signal
+
+    # Calculate best fit
+    ret, _ = curve_fit(func, data[:, 0], data[:, 1], p0=[0.5]*len(references), bounds=(0, np.inf))
+    dict_ = {label: ret[i] for i, label in enumerate(references.keys())}
+    #for label, percent in pretty_dict.items(): print(label, percent)
+    return dict_, modified_references
+
+def align_spectra(iss_data, limits=[350, 520], masses=[16, 18], key='oxygen'):
+    """Shift the iss data within 'limits' region to snap maximum signal
+unto nearest mass in list 'masses'."""
+
+    plt.figure('aligned')
+    for data in iss_data:
+        # Initialize attributes
+        try:
+            data.shifted
+        except AttributeError:
+            data.shifted = {}
+        try:
+            data.smoothed
+        except AttributeError:
+            data.smoothed = {}
+
+        # Get index of region of interest
+        index = ct.get_range(data.x, *limits)
+        # Find maximum in region
+        ys = ct.smooth(data.y, width=4)
+        data.smoothed[key] = ys
+        maximum = max(ys[index])
+        if not np.isfinite(maximum):
+            data.good = False
+            continue # "Broken" dataset
+        data.good = True
+        i_max = np.where(ys == maximum)[0]
+        x_max = data.x[i_max]
+
+        # Find difference from reference
+        energies = data.ConvertEnergy(np.array(masses))
+        try:
+            distance = np.abs(x_max - energies)
+        except ValueError:
+            print('ValueError')
+            print(data.filename)
+            print(data.x)
+            print(data.y[np.isfinite(data.y)])
+            print(data.smoothed[key])
+            print(maximum)
+            print(x_max)
+            print(energies)
+            plt.figure()
+            plt.plot(data.x, data.y)
+            plt.show()
+            raise
+
+        # Snap to nearest line
+        data.shifted[key] = data.x - (x_max - energies)[np.where(distance == min(distance))[0]]
+        plt.plot(data.shifted[key], data.y)
+        plt.plot(data.shifted[key], ys)
+    data.AddMassLines(masses)
+
+    # Return a nd.array of modified xy data
+    return np.vstack((data.shifted[key], data.smoothed[key])).T
+
+def from_fit(references, fit):
+    y = None
+    for label, value in references.items():
+        if y is None:
+            y = value[:, 1] * fit[label]
+        else:
+            y += fit[label] * value[:, 1]
+    return y
+
+def interpret_fit(dictionary):
+    total = sum([val for val in dictionary.values()])
+    new_dict = {label: value/total*100 for label, value in dictionary.items()}
+    results = {}
+    results['info'] = """Interpretation of keys:
+    'isotope_ratio': Percentage of O-18 of total oxygen present
+    'oxide_ratio': Percentage of total oxygen signal compared to the Ru (oxide) signal
+    'metallic_ratio': Percentage metallic Ru signal compared to total Ru signal
+"""
+    print(new_dict)
+
+    O18 = dictionary['O-18']/(dictionary['O-18'] + dictionary['O-16'])
+    print('Percent 18-O: {} %'.format(O18*100))
+    results['isotope_ratio'] = O18*100
+
+    #oxide = (dictionary['O-16'] + dictionary['O-18']) / dictionary['Metallic2']
+    #print('Degree of oxide: {} %'.format(oxide*100))
+    #results['oxide_ratio'] = oxide*100
+
+    #metallic = dictionary['Metallic1'] / (dictionary['Metallic1'] + dictionary['Metallic2'])
+    #print('Degree metallic: {} %'.format(metallic*100))
+    #results['metallic_ratio'] = metallic*100
+    #print()
+    return new_dict, results
+    
+
+
