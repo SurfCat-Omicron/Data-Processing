@@ -460,7 +460,8 @@ if __name__ == '__main__':
     exp = data.isolate_experiments()
     filename= data.name.replace(" ", "-").replace(":", "-")
     try:
-        os.mkdir("D:\Skrivebord\Surfcat project\DataTreatment-master\{}_PID".format(data.name))
+        getdir=os.getcwd()+"\{}\Ramps".format(data.name)
+        os.makedirs(getdir)
     except FileExistsError:
         pass
     for i in exp.keys():
