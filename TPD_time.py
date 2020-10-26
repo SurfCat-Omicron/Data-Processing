@@ -150,7 +150,8 @@ different practical functions for data treatment"""
         print('Loaded data from Experiment: "{}"'.format(self.name))
 
 
-    def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
+    #def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
+    def isolate_experiments(self, set_label=None, temp_label='Current monitor'):
         """
 1) Isolate regions of heating ramps
 2) Organize into returnable data
@@ -459,25 +460,19 @@ if __name__ == '__main__':
     exp = data.isolate_experiments()
     filename= data.name.replace(" ", "-").replace(":", "-")
     try:
-        os.mkdir("D:\Skrivebord\Surfcat project\DataTreatment-master\{}".format(data.name))
+        os.makedirs("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\Time".format(data.name))
     except FileExistsError:
         pass
     for i in exp.keys():
         for label in exp[i].keys():
-            if label.startswith('M'):
+            #if label.startswith('M'): before
+            if label.startswith('M30'):
                 dat = exp[i][label]
-                #if len(dat[1]) < 150:
-                #    print("Skipped ramp {}. Too short".format(i+1))
-                #    continue
-                tvals = dat[0]
-                xvals = dat[2]+273.15
-                yvals = dat[1]/1e-12
-                dx = tvals[1]-tvals[0] #find sampling rate
-                endindex = int((1/dx)*340) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
-                y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
-                x = [tvals[0], tvals[0]+endindex] #find x at beginning and 240s in
-                coeff = np.polyfit(x, y, 1) #fit straight line
-                poly = np.poly1d(coeff) #construct polynomial
-                corr_y = yvals-poly(tvals) #correct y values
-                np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
-                print("File saved as \{}\{}_{}_{}.txt".format(data.name, filename, label, i+1))
+                dat[0] = dat[0]-dat[0][0] #remove
+                if len(dat[1]) < 50:
+                    print("Skipped ramp {}. Too short.".format(i+1))
+                    continue
+                #np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\Time\Time_{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([(dat[0]),(dat[1]/1e-12)]), delimiter=",", header="Time,{} SEM current\ns,pA".format(label), comments="")
+                np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\Time\Time_{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([(dat[2]),(dat[1]/1e-12)]), delimiter=",", header="Filament current,{} SEM current\nA,pA".format(label), comments="")
+                print("File saved as Time_{}_{}_{}.txt".format(filename, label, i+1))
+

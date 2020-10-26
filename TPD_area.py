@@ -454,30 +454,29 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
     plt.show()
 
 if __name__ == '__main__':
+    print('This script calculates area under TPDs and appends it to the specified filename.')
     timestampd = input('Timestamp: ')
     data = Experiment(timestampd, caching=False)
     exp = data.isolate_experiments()
-    filename= data.name.replace(" ", "-").replace(":", "-")
-    try:
-        os.mkdir("D:\Skrivebord\Surfcat project\DataTreatment-master\{}".format(data.name))
-    except FileExistsError:
-        pass
+    coverage = float(input('Coverage: '))
+    filename = input('Filename: ')
+    file=open(filename,'a')   
+    areas = []
     for i in exp.keys():
-        for label in exp[i].keys():
-            if label.startswith('M'):
-                dat = exp[i][label]
-                #if len(dat[1]) < 150:
-                #    print("Skipped ramp {}. Too short".format(i+1))
-                #    continue
-                tvals = dat[0]
-                xvals = dat[2]+273.15
-                yvals = dat[1]/1e-12
-                dx = tvals[1]-tvals[0] #find sampling rate
-                endindex = int((1/dx)*340) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
-                y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
-                x = [tvals[0], tvals[0]+endindex] #find x at beginning and 240s in
-                coeff = np.polyfit(x, y, 1) #fit straight line
-                poly = np.poly1d(coeff) #construct polynomial
-                corr_y = yvals-poly(tvals) #correct y values
-                np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
-                print("File saved as \{}\{}_{}_{}.txt".format(data.name, filename, label, i+1))
+            dat = exp[i]['M30']
+            if len(dat[0]) < 150:
+                print("Skipped ramp {}. Too short.".format(i+1))
+                continue
+            xvals = dat[0]
+            yvals = dat[1]/1e-12
+            dx = xvals[1]-xvals[0] #find sampling rate
+            endindex = int((1/dx)*240) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
+            y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
+            x = [xvals[0], xvals[0]+endindex] #find x at beginning and 240s in
+            coeff = np.polyfit(x, y, 1) #fit straight line
+            poly = np.poly1d(coeff) #construct polynomial
+            corr_y = yvals-poly(xvals) #correct y values
+            area= simps(corr_y,xvals) #find area
+            areas.append([coverage, area])
+    np.savetxt(file, areas, delimiter=",", header="Coverage,Integrated current\%,AU", comments="")
+    print('File saved as: {}'.format(filename))

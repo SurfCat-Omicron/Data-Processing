@@ -7,8 +7,6 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.stats import linregress
 from scipy.integrate import simps
-import os
-
 
 """
 Author: Jakob Ejler Sørensen
@@ -127,7 +125,6 @@ def import_data(ID, setup='omicron'):
 #            'Voltage setpoint', 'Voltage monitor',
 #            'Current setpoint', 'Current monitor']
 
-
 class Experiment(object):
     """Imports a TPD data set from Omicron into a TPD class to implement
 different practical functions for data treatment"""
@@ -150,7 +147,8 @@ different practical functions for data treatment"""
         print('Loaded data from Experiment: "{}"'.format(self.name))
 
 
-    def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
+    #def isolate_experiments(self, set_label=None, temp_label='Sample temperature'):
+    def isolate_experiments(self, set_label=None, temp_label='Base temperature'):
         """
 1) Isolate regions of heating ramps
 2) Organize into returnable data
@@ -194,7 +192,7 @@ different practical functions for data treatment"""
         region = np.arange(marker_start, counter)
         regions.append(region)
         number_of_regions = len(regions)
-        print("Number of ramps detected: {}".format(number_of_regions))
+        print(number_of_regions)
 
         # 2) Organize into returnable data
         if not temp_label in self.labels:
@@ -457,27 +455,21 @@ if __name__ == '__main__':
     timestampd = input('Timestamp: ')
     data = Experiment(timestampd, caching=False)
     exp = data.isolate_experiments()
-    filename= data.name.replace(" ", "-").replace(":", "-")
-    try:
-        os.mkdir("D:\Skrivebord\Surfcat project\DataTreatment-master\{}".format(data.name))
-    except FileExistsError:
-        pass
+    filename= timestampd.replace(" ", "_").replace(":", "-")
+	
+    #colors = ['k', 'r', 'g', 'b', 'm', 'y', 'c']
+
+    # Plot experiment(s)
+    #fig = plt.figure(1)
+    #ax = fig.add_subplot(111)
     for i in exp.keys():
-        for label in exp[i].keys():
-            if label.startswith('M'):
-                dat = exp[i][label]
-                #if len(dat[1]) < 150:
-                #    print("Skipped ramp {}. Too short".format(i+1))
-                #    continue
-                tvals = dat[0]
-                xvals = dat[2]+273.15
-                yvals = dat[1]/1e-12
-                dx = tvals[1]-tvals[0] #find sampling rate
-                endindex = int((1/dx)*340) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
-                y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
-                x = [tvals[0], tvals[0]+endindex] #find x at beginning and 240s in
-                coeff = np.polyfit(x, y, 1) #fit straight line
-                poly = np.poly1d(coeff) #construct polynomial
-                corr_y = yvals-poly(tvals) #correct y values
-                np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
-                print("File saved as \{}\{}_{}_{}.txt".format(data.name, filename, label, i+1))
+        dat = exp[i]['M30']
+        #ax.plot(dat[2], dat[1]/1e-12, marker='o', color=colors[i])
+        np.savetxt("TPD_{}_{}_block.txt".format(filename, i+1), np.column_stack([(dat[2]+273.15),(dat[1]/1e-12)]), delimiter=",", header="Temperature,M30 SEM current\nK,pA", comments="")
+        print("File saved as TPD_{}_{}_block.txt".format(filename,i+1))
+    #ax.set_xlabel('Temperature ($^\circ$C)')
+    #ax.set_ylabel('M30 SEM current (pA)')
+    #add_scale_Kelvin(ax)
+	
+   #plt.show()
+
