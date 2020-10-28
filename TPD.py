@@ -246,8 +246,8 @@ def get_total_signal(exp, ID):
 Resembles a lot"""
 
     # For every experiment, add integrated signal as 'COVERAGE'
-    coverage = np.zeros(len(exp.viewkeys()))
-    for i in exp.viewkeys():
+    coverage = np.zeros(len(exp.keys()))
+    for i in exp.keys():
         ranges = []
         x = exp[i][ID][0]
         y = exp[i][ID][1]
@@ -331,7 +331,7 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
 
     # Check if selection has been given
     if len(selection) < 1:
-        selection = exp.viewkeys()
+        selection = exp.keys()
 
     GUIDE_LINES = (np.arange(10)+1) * 100
     fig, ax = {}, {}    
@@ -379,8 +379,8 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
         ax[i][4].set_xlabel('Time (s)')
         ax[i][4].set_ylabel('Temp$_{meas}$ - Temp$_{avg}$')
 
-        
-        # Plot power supply data
+     
+        """# Plot power supply data
         fig_id = 'Filament data {}'.format(i)
         fig[fig_id] = plt.figure(fig_id)
         ax[i][5] = fig[fig_id].add_subplot(121)
@@ -399,8 +399,8 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
         ax_twinx.plot(data[0] - data[0][0], data[1], 'm-')
         ax_twinx.set_ylim([0, 6.0])
         ax_twinx.set_ylabel('Current (A)')
-
-        # Plot PID data
+        """    
+        """# OLD CODE: Plot PID data
         ax[i][6] = fig[fig_id].add_subplot(122)
         data = exp[i]['P error']
         x = data[0] - data[0][0]
@@ -415,17 +415,18 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
         y = data[1]
         ax_twinx.plot(x[25:], y[25:], 'm-') # Hardcoded index range due to earlier extended experiment region
         ax_twinx.set_ylabel('I error')
-
+        """
         # Plot guiding lines
         XLIM = [0, data[0][-1]-data[0][0]]
-        for j in [2, 3, 4, 5, 6]:
+        #Add more j in case of more plots
+        for j in [2, 3, 4]:
             print(i,j)
             axis = ax[i][j]
             for X in GUIDE_LINES:
                 axis.axvline(x=X, linestyle='-.', color='k', alpha=0.3)
             axis.set_xlim(XLIM)
     
-    # Plot main result
+    """# Plot main result
     fig_id = 'Result'
     fig[fig_id] = plt.figure(fig_id)
     ax_id = 'Result'
@@ -436,7 +437,7 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
     ax[ax_id].set_xlabel('Temperature (C)')
     ax[ax_id].set_ylabel('SEM current (A)')
     ax[ax_id].text(0.05, 0.90, 'm/z = 30', color='k')
-    add_scale_Kelvin(ax[ax_id])
+    add_scale_Kelvin(ax[ax_id])"""
 
     if not coverage is None and not doses is None:
         # Plot uptake curve
@@ -453,10 +454,24 @@ def generate_standard_plots(exp, coverage=None, doses=None, selection=[]):
     # Show plots
     plt.show()
 
-if __name__ == '__main__':
-    timestampd = input('Timestamp: ')
-    data = Experiment(timestampd, caching=False)
-    exp = data.isolate_experiments()
+#Plotting using user imput
+timestampd = input('Timestamp: ')
+data = Experiment(timestampd, caching=False)
+exp = data.isolate_experiments()
+generate_standard_plots(exp)
+
+
+
+def yes_or_no(question):
+    reply = str(input(question+' (y/n): ')).lower().strip()
+    if reply[0] == 'y':
+        return True
+    if reply[0] == 'n':
+        return False
+    else:
+        return yes_or_no("Uhhhh... please enter ")
+
+if yes_or_no('Save as .txt?')==True: #Ask whether to save as .txt
     filename= data.name.replace(" ", "-").replace(":", "-")
     try:
         getdir=os.getcwd()+"\{}".format(data.name)
@@ -467,18 +482,18 @@ if __name__ == '__main__':
         for label in exp[i].keys():
             if label.startswith('M'):
                 dat = exp[i][label]
-                #if len(dat[1]) < 150:
-                #    print("Skipped ramp {}. Too short".format(i+1))
-                #    continue
+                if len(dat[1]) < 150: #skip ramps that are too small
+                    print("Skipped ramp {}. Too short".format(i+1))
+                    continue
                 tvals = dat[0]
                 xvals = dat[2]+273.15
                 yvals = dat[1]/1e-12
                 dx = tvals[1]-tvals[0] #find sampling rate
-                endindex = int((1/dx)*340) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
+                endindex = int((1/dx)*240) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
                 y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
                 x = [tvals[0], tvals[0]+endindex] #find x at beginning and 240s in
                 coeff = np.polyfit(x, y, 1) #fit straight line
                 poly = np.poly1d(coeff) #construct polynomial
                 corr_y = yvals-poly(tvals) #correct y values
-                np.savetxt("D:\Skrivebord\Surfcat project\DataTreatment-master\{}\{}_{}_{}.txt".format(data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
-                print("File saved as \{}\{}_{}_{}.txt".format(data.name, filename, label, i+1))
+                np.savetxt("{}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
+                print("File saved as {}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1))
