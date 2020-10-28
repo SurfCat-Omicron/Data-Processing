@@ -7,13 +7,15 @@ from tkinter import filedialog
 
 root = Tk()
 cdir = os.getcwd()
-files = filedialog.askopenfilenames(initialdir = cdir, parent = root,
-title = 'Select files to plot', filetypes = [('Vamas files', '*.vms')])
-filesred = root.tk.splitlist(files)
+files = filedialog.askopenfilenames(initialdir = cdir, title = 'Select files to plot', filetypes = [('Vamas files', '*.vms')])
+filesread = root.tk.splitlist(files)
 filename= []
-for i in filesred:
+for i in filesread:
     filename.append(i.split('/')[-1])
-print (filename)
+    
+# Change working directory to directory first chosen file is in.
+os.chdir(filesread[0].replace(filename[0],'')) 
+
 ## If more than one filename is written then this if-statement is used.##
 
 #filename = []
@@ -86,8 +88,8 @@ for i in range(len(filename)):
         yplot=[q+i*0 for q in y[i]]
         ysave = np.array(y[i])
         fname = 'plot'+str(i)+'.txt'
-        np.savetxt(fname,ysave)
-    np.savetxt('x.txt', x[i])
+        #np.savetxt(fname,ysave)
+    #np.savetxt('x.txt', x[i])
     plt.plot(x[i],yplot)
 
 
