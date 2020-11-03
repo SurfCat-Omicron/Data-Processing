@@ -1,2 +1,3 @@
-# Data-Processing
-Folder containing various modules for data processing for the Omicron setup
+# DataTreatment
+Folder containing various modules for data treatment during the PhD at SurfCat. 
+Forked from Jakob Ejler and modified
