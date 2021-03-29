@@ -311,11 +311,13 @@ def add_scale_Kelvin(ax, axis='x'):
         ax_twin.set_ylim(ax.get_ylim())
         new_ticks = ax.get_yticks()
     new_start = 100 - 273.15
+    new_start = new_ticks[0]+26.85
     new_ticklocations = np.arange(len(new_ticks)-1)*np.diff(new_ticks) + new_start
     if axis == 'x':
         ax_twin.set_xticks(new_ticklocations)
         ax_twin.set_xticklabels(tick_function(new_ticklocations))
         ax_twin.set_xlabel('Temperature (K)')
+        ax_twin.minorticks_on()
     elif axis == 'y':
         ax_twin.set_yticks(new_ticklocations)
         ax_twin.set_yticklabels(tick_function(new_ticklocations))
@@ -346,42 +348,48 @@ def generate_standard_plots(exp, ID=None, coverage=None, doses=None, selection=[
 
             # Plot actual TPD result
             ax[i] = {}
-            ax[i][1] = fig[fig_id].add_subplot(221)
+            #ax[i][1] = fig[fig_id].add_subplot(221)
+            ax[i][1] = fig[fig_id].add_subplot(211)
             data = exp[i]['M30']
             ax[i][1].plot(data[2], data[1], 'r-')
             ax[i][1].set_xlabel('Temperature (C)')
             ax[i][1].set_ylabel('SEM current (A)')
             add_scale_Kelvin(ax[i][1])
+            ax[i][1].minorticks_on()
 
-            # Plot raw signal vs time
-            ax[i][2] = fig[fig_id].add_subplot(222)
-            ax[i][2].plot(data[0] - data[0][0], data[1], 'ro-')
-            ax[i][2].set_xlabel('Time (s)')
-            ax[i][2].set_ylabel('SEM current (A)')
-            if not coverage is None and not doses is None:
-                ax[i][2].text(0.5, 0.85, 'Dose:        {:.3} mbar s\nCoverage: {:.3} C'.format(doses[i], coverage[i]), transform=ax[i][2].transAxes)
 
             # Plot temperature vs time
             ax_id = 'temperature {}'.format(i)
-            ax[i][3] = fig[fig_id].add_subplot(223)
+            #ax[i][2] = fig[fig_id].add_subplot(223)
+            ax[i][2] = fig[fig_id].add_subplot(212)
             data = exp[i]['Sample temperature']
             slope = exp[i]['Slope']
-            ax[i][3].plot(data[0] - data[0][0], data[1], 'b-')
-            ax[i][3].plot(data[0] - data[0][0], slope, 'k-')
+            ax[i][2].plot(data[0] - data[0][0], data[1], 'b-')
+            ax[i][2].plot(data[0] - data[0][0], slope, 'k-')
             value_of_slope = (slope[-1]- slope[0])/(data[0][-1]-data[0][0])
-            ax[i][3].text(.05, 0.7, 'Heat rate: {:.3} K/s'.format(value_of_slope), transform=ax[i][3].transAxes)
-            ax[i][3].set_xlabel('Time (s)')
-            ax[i][3].set_ylabel('Temperature (C)')
-            add_scale_Kelvin(ax[i][3], axis='y')
+            ax[i][2].text(.05, 0.7, 'Heat rate: {:.3} K/s'.format(value_of_slope), transform=ax[i][2].transAxes)
+            ax[i][2].set_xlabel('Time (s)')
+            ax[i][2].set_ylabel('Temperature (C)')
+            add_scale_Kelvin(ax[i][2], axis='y')
+            ax[i][2].minorticks_on()
+
+            # Plot raw signal vs time
+            #ax[i][3] = fig[fig_id].add_subplot(222)
+            #ax[i][3].plot(data[0] - data[0][0], data[1], 'ro-')
+            #ax[i][3].set_xlabel('Time (s)')
+            #ax[i][3].set_ylabel('SEM current (A)')
+            #if not coverage is None and not doses is None:
+            #    ax[i][3].text(0.5, 0.85, 'Dose:        {:.3} mbar s\nCoverage: {:.3} C'.format(doses[i], coverage[i]), transform=ax[i][2].transAxes)
+
 
             # Plot difference in temperature and slope vs time
-            ax[i][4] = fig[fig_id].add_subplot(224)
-            ax[i][4].axhline(y=0, linestyle='solid', color='k')
-            for j in [-1, 1]:
-                ax[i][4].axhline(y=j, linestyle='dashed', color='k')
-            ax[i][4].plot(data[0] - data[0][0], data[1] - slope, 'b-')
-            ax[i][4].set_xlabel('Time (s)')
-            ax[i][4].set_ylabel('Temp$_{meas}$ - Temp$_{avg}$')
+            #ax[i][4] = fig[fig_id].add_subplot(224)
+            #ax[i][4].axhline(y=0, linestyle='solid', color='k')
+            #for j in [-1, 1]:
+            #    ax[i][4].axhline(y=j, linestyle='dashed', color='k')
+            #ax[i][4].plot(data[0] - data[0][0], data[1] - slope, 'b-')
+            #ax[i][4].set_xlabel('Time (s)')
+            #ax[i][4].set_ylabel('Temp$_{meas}$ - Temp$_{avg}$')
 
             """# OLD CODE: Plot power supply data
             fig_id = 'Filament data {}'.format(i)
@@ -423,7 +431,8 @@ def generate_standard_plots(exp, ID=None, coverage=None, doses=None, selection=[
             # Plot guiding lines
             XLIM = [0, data[0][-1]-data[0][0]]
             #Add more j in case of more plots
-            for j in [2, 3, 4]:
+            #for j in [2, 3, 4]:
+            for j in [2]:
                 print(i,j)
                 axis = ax[i][j]
                 for X in GUIDE_LINES:
@@ -448,13 +457,19 @@ def generate_standard_plots(exp, ID=None, coverage=None, doses=None, selection=[
             fig[fig_id] = plt.figure(fig_id)
             ax_id = 'Result'
             ax[ax_id] = fig[fig_id].add_subplot(111)
+            plt.gca().set_prop_cycle(None)
+            legend_labels = ['1']
             for i in selection:
                 data = exp[i]['M30']
-                ax[ax_id].plot(data[2], data[1])
+                ax[ax_id].plot(data[2], data[1]*1e12)
+                if i > 0:
+                    legend_labels.append(str(i+1))
+                    plt.legend(legend_labels)
             ax[ax_id].set_xlabel('Temperature (C)')
-            ax[ax_id].set_ylabel('SEM current (A)')
-            ax[ax_id].text(0.05, 0.90, 'm/z = 30', color='k')
+            ax[ax_id].set_ylabel('M30 SEM current (pA)')
+            #ax[ax_id].text(0.05, 0.90, 'm/z = 30', color='k')
             add_scale_Kelvin(ax[ax_id])
+            ax[ax_id].minorticks_on()
     # Show plots
     plt.show()
 
@@ -482,7 +497,7 @@ def txt_save(ID):
                 xvals = dat[2]+273.15
                 yvals = dat[1]/1e-12
                 dx = tvals[1]-tvals[0] #find sampling rate
-                endindex = int((1/dx)*240) #find 240 sec into ramp index. temp is 50 at 240 sec into ramp
+                endindex = int((1/dx)*300) #find 300 sec into ramp index. temp is 50 at 240 sec into ramp
                 y = [sum(yvals[0:3])/3, sum(yvals[endindex-2:endindex+1])/3] #find averages of y in the beginning and 240s in
                 x = [tvals[0], tvals[0]+endindex] #find x at beginning and 240s in
                 coeff = np.polyfit(x, y, 1) #fit straight line
@@ -493,7 +508,8 @@ def txt_save(ID):
                     areas.append([coverage, area])                    
                     break                
                 elif ID==1:
-                    np.savetxt("{}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1), np.column_stack([xvals,corr_y]), delimiter=",", header="Temperature,{} SEM current\nK,pA".format(label), comments="")
+                    np.savetxt("{}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1), np.column_stack([xvals,corr_y,(tvals-tvals[0])]), delimiter=",", header="Temperature,SEM current,Time\nK,pA,s", comments="")
+                    #np.savetxt("{}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1), np.column_stack([tvals-tvals[0],xvals]), delimiter=",", header="Time,Temperature\ns,K", comments="")
                     print("File saved as {}\{}\{}_{}_{}.txt".format(os.getcwd(),data.name, filename, label, i+1))
     if ID==2:
         root = tk.Tk()
@@ -525,7 +541,8 @@ while ans:
     2. Plot main result
     3. Save data as .txt
     4. Calculate area under TPD and save as .txt
-    5. Quit
+    5. Load another timestamp
+    6. Quit (q)
     -------------------------------------------
     """)
     ans=input("Choose an option: ")
@@ -538,6 +555,10 @@ while ans:
     elif ans=="4":
       txt_save(2)
     elif ans=="5":
+        timestampd = input('Timestamp: ')
+        data = Experiment(timestampd, caching=False)
+        exp = data.isolate_experiments()
+    elif ans=="6" or ans=="q" or ans=="Q":
       ans = None
     else:
        print("\n Not a valid choice, try again")
